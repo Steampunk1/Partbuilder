@@ -1075,6 +1075,185 @@ class Component extends DCLogic {
     return st3;
   }
 
+  /** Half-width in x of hole h at wrap-offset du from its center, or null
+   *  outside the hole's u-span. Handles round holes and both slot axes. */
+  holeHalfX(h, du) {
+    const r = h.dia / 2, ad = Math.abs(du);
+    if (!h.slotL) return ad > r + 1e-9 ? null : Math.sqrt(Math.max(0, r * r - du * du));
+    if (h.ax === 'x') return ad > r + 1e-9 ? null : (h.slotL - h.dia) / 2 + Math.sqrt(Math.max(0, r * r - du * du));
+    const half = h.slotL / 2;
+    if (ad > half + 1e-9) return null;
+    const dd = Math.max(0, ad - (half - r));
+    return Math.sqrt(Math.max(0, r * r - dd * dd));
+  }
+  /** Half of a hole's extent along the wrap direction. */
+  holeUSpan(h) { return h.slotL && h.ax === 'y' ? h.slotL / 2 : h.dia / 2; }
+
+  /** Faceted closed solid for round/box stock with every OK wall hole cut
+   *  through the near wall as a square radial cut — same angular extent on
+   *  the OD and ID, exactly what the rotary laser leaves. Pure math (no
+   *  three.js): feeds the 3D stage, the OBJ export and the STEP export, and
+   *  runs headless in the test harness. Returns { pos: [], idx: [] } with
+   *  vertices deduplicated, so the mesh is edge-manifold. */
+  shellSolid(c) {
+    const holes = c.holes.filter((hh) => hh.ok);
+    const wrap = c.wrap, N = c.N, EPS = 1e-7;
+    const stns = c.stns;
+    // surface sample at wrap coordinate u: outer/inner point + end-cut x's.
+    // Round: band row u maps to station (u/wrap)*N + N/2 (seam at the bottom),
+    // phi = u/ro - PI — identical to wrapPaths/_build3D conventions.
+    const at = (u) => {
+      if (c.kind === 'round') {
+        const { ro, ri } = c.sec;
+        const phi = u / ro - Math.PI;
+        const cs = Math.cos(phi), sn = Math.sin(phi);
+        const fi = (((u / wrap) * N + N / 2) % N + N) % N;
+        const i0 = Math.floor(fi) % N, i1 = (i0 + 1) % N, f = fi - Math.floor(fi);
+        return { oy: ro * cs, oz: ro * sn, iy: ri * cs, iz: ri * sn,
+          a: c.a[i0] * (1 - f) + c.a[i1] * f, b: c.b[i0] * (1 - f) + c.b[i1] * f };
+      }
+      const t = c.sec.t;
+      let i0 = 0;
+      for (let i = stns.length - 1; i >= 0; i--) if (stns[i].s <= u + 1e-9) { i0 = i; break; }
+      const q0 = stns[i0], last = i0 + 1 >= stns.length;
+      const q1 = last ? stns[0] : stns[i0 + 1];
+      const s1 = last ? wrap : stns[i0 + 1].s;
+      const f = s1 > q0.s ? Math.max(0, Math.min(1, (u - q0.s) / (s1 - q0.s))) : 0;
+      const y = q0.y + (q1.y - q0.y) * f, z = q0.z + (q1.z - q0.z) * f;
+      let ny = q0.ny + (q1.ny - q0.ny) * f, nz = q0.nz + (q1.nz - q0.nz) * f;
+      const nl = Math.hypot(ny, nz) || 1; ny /= nl; nz /= nl;
+      const j1 = last ? 0 : i0 + 1;
+      return { oy: y, oz: z, iy: y - t * ny, iz: z - t * nz,
+        a: c.a[i0] * (1 - f) + c.a[j1] * f, b: c.b[i0] * (1 - f) + c.b[j1] * f };
+    };
+    // wrap rows: every station row plus refinement inside each hole span so
+    // the opening keeps its curvature.
+    const rowSet = new Set([0, wrap]);
+    if (c.kind === 'round') { for (let j = 1; j < N; j++) rowSet.add(wrap * j / N); }
+    else { for (const q of stns) if (q.s > EPS) rowSet.add(q.s); }
+    for (const hh of holes) {
+      const s = this.holeUSpan(hh);
+      for (let k = 0; k <= 14; k++) rowSet.add(hh.u - s + 2 * s * k / 14);
+      if (hh.slotL && hh.ax === 'y') { rowSet.add(hh.u - (hh.slotL - hh.dia) / 2); rowSet.add(hh.u + (hh.slotL - hh.dia) / 2); }
+    }
+    const rowsU = [];
+    for (const u of [...rowSet].sort((x, y) => x - y)) {
+      if (u < -EPS || u > wrap + EPS) continue;
+      if (!rowsU.length || u - rowsU[rowsU.length - 1] > EPS) rowsU.push(u);
+    }
+    if (rowsU[rowsU.length - 1] < wrap - EPS) rowsU.push(wrap); else rowsU[rowsU.length - 1] = wrap;
+    const rowAt = rowsU.map((u) => at(u));
+    // row-intrinsic hole boundary pairs — every band sharing a row sees the
+    // same subdivision, so surfaces stay crack-free (edge-manifold).
+    const rowPairs = rowsU.map((u) => {
+      const out = [];
+      for (const hh of holes) {
+        const s = this.holeUSpan(hh);
+        if (u < hh.u - s - EPS || u > hh.u + s + EPS) continue;
+        const du = Math.max(-s, Math.min(s, u - hh.u));
+        const hw = this.holeHalfX(hh, du) ?? 0;
+        out.push({ h: hh, x0: hh.x - hw, x1: hh.x + hw });
+      }
+      return out;
+    });
+    const pos = [], idx = [], key2id = new Map();
+    const vid = (x, y, z) => {
+      const f = (v) => (Math.abs(v) < 5e-7 ? 0 : v).toFixed(6);
+      const k = f(x) + ',' + f(y) + ',' + f(z);
+      let id = key2id.get(k);
+      if (id === undefined) { id = pos.length / 3; pos.push(x, y, z); key2id.set(k, id); }
+      return id;
+    };
+    const tri = (i, j, k, flip) => {
+      if (i === j || j === k || i === k) return;
+      if (flip) idx.push(i, k, j); else idx.push(i, j, k);
+    };
+    // wall surfaces. flip: CCW in (x,u) maps to an inward-facing normal, so
+    // the outer surface flips and the inner (bore) surface keeps CCW.
+    // Every row splits at every hole's center-x (a degenerate point outside
+    // the hole's span, snapped onto a containing opening's edge) — the
+    // subdivision is a property of the ROW alone, so adjacent bands always
+    // tile shared rows identically and the surface stays crack-free.
+    const hs = holes.slice().sort((p, q) => (p.x - q.x) || (p.u - q.u));
+    const bnd = (ri, A) => {
+      const pairs = hs.map((hh) => {
+        const p = rowPairs[ri].find((q) => q.h === hh);
+        return p && p.x1 - p.x0 > 1e-9 ? { x0: p.x0, x1: p.x1, real: true } : { x0: hh.x, x1: hh.x, real: false };
+      });
+      for (let i = 0; i < pairs.length; i++) {
+        if (pairs[i].real) continue;
+        for (let j = 0; j < pairs.length; j++) {
+          if (i === j || !pairs[j].real) continue;
+          if (pairs[i].x0 > pairs[j].x0 + 1e-9 && pairs[i].x0 < pairs[j].x1 - 1e-9) {
+            const v = i < j ? pairs[j].x0 : pairs[j].x1;
+            pairs[i].x0 = pairs[i].x1 = v;
+            break;
+          }
+        }
+      }
+      const xs = [A.a];
+      for (const p of pairs) xs.push(p.x0, p.x1);
+      xs.push(A.b);
+      return xs;
+    };
+    const surf = (mapY, mapZ, flip) => {
+      for (let r = 0; r + 1 < rowsU.length; r++) {
+        const u0 = rowsU[r], u1 = rowsU[r + 1];
+        const A0 = rowAt[r], A1 = rowAt[r + 1];
+        const B0 = bnd(r, A0), B1 = bnd(r + 1, A1);
+        for (let m = 0; m + 1 < B0.length; m++) {
+          if (m & 1) { // a hole's own span: skip when the hole pierces this band
+            const hh = hs[(m - 1) / 2];
+            const s = this.holeUSpan(hh);
+            if (hh.u - s < u1 - EPS && hh.u + s > u0 + EPS) continue;
+          }
+          const p00 = vid(B0[m], mapY(A0), mapZ(A0));
+          const p01 = vid(B0[m + 1], mapY(A0), mapZ(A0));
+          const p10 = vid(B1[m], mapY(A1), mapZ(A1));
+          const p11 = vid(B1[m + 1], mapY(A1), mapZ(A1));
+          tri(p00, p01, p11, flip); tri(p00, p11, p10, flip);
+        }
+      }
+    };
+    surf((A) => A.oy, (A) => A.oz, true);
+    surf((A) => A.iy, (A) => A.iz, false);
+    // end-cut faces: square radial cut, inner and outer end at the same x.
+    for (let r = 0; r + 1 < rowsU.length; r++) {
+      const A0 = rowAt[r], A1 = rowAt[r + 1];
+      for (const [end, flip] of [['a', true], ['b', false]]) {
+        const o0 = vid(A0[end], A0.oy, A0.oz), o1 = vid(A1[end], A1.oy, A1.oz);
+        const i1 = vid(A1[end], A1.iy, A1.iz), i0 = vid(A0[end], A0.iy, A0.iz);
+        tri(o0, o1, i1, flip); tri(o0, i1, i0, flip);
+      }
+    }
+    // hole barrels: the radial cut wall of each opening.
+    for (const hh of holes) {
+      const rows = [];
+      for (let r = 0; r < rowsU.length; r++) {
+        const p = rowPairs[r].find((q) => q.h === hh);
+        if (p) rows.push({ r, x0: p.x0, x1: p.x1 });
+      }
+      for (let j = 0; j + 1 < rows.length; j++) {
+        const lo = rows[j], hi = rows[j + 1];
+        const Al = rowAt[lo.r], Ah = rowAt[hi.r];
+        for (const [x0v, x1v, flip] of [[lo.x0, hi.x0, false], [lo.x1, hi.x1, true]]) {
+          const o0 = vid(x0v, Al.oy, Al.oz), o1 = vid(x1v, Ah.oy, Ah.oz);
+          const i1 = vid(x1v, Ah.iy, Ah.iz), i0 = vid(x0v, Al.iy, Al.iz);
+          tri(o0, o1, i1, flip); tri(o0, i1, i0, flip);
+        }
+      }
+      // flat floor/ceiling edges (slots running along the length)
+      for (const [row, flip] of [[rows[0], true], [rows[rows.length - 1], false]]) {
+        if (!row || row.x1 - row.x0 < EPS) continue;
+        const A = rowAt[row.r];
+        const o0 = vid(row.x0, A.oy, A.oz), o1 = vid(row.x1, A.oy, A.oz);
+        const i1 = vid(row.x1, A.iy, A.iz), i0 = vid(row.x0, A.iy, A.iz);
+        tri(o0, o1, i1, flip); tri(o0, i1, i0, flip);
+      }
+    }
+    return { pos, idx };
+  }
+
   _build3D() {
     const T = this._T, stage = this._stage;
     if (!T || !stage) return;
@@ -1097,37 +1276,17 @@ class Component extends DCLogic {
     const addLoop = (pts) => { const n = pts.length; for (let i = 0; i < n; i++) { const p = pts[i], q = pts[(i + 1) % n]; edgeVerts.push(p[0], p[1], p[2], q[0], q[1], q[2]); } };
 
     if (c.kind === 'round' || c.kind === 'box') {
-      const st3 = this.shellStations(c);
-      const N = st3.length, a = c.a, b = c.b;
-      const pos = new Float32Array(8 * N * 3);
-      const put = (vi, x, y, z) => { pos[vi * 3] = x; pos[vi * 3 + 1] = y; pos[vi * 3 + 2] = z; };
-      for (let i = 0; i < N; i++) {
-        const s3 = st3[i];
-        put(2 * i, a[i], s3.oy, s3.oz); put(2 * i + 1, b[i], s3.oy, s3.oz);
-        put(2 * N + 2 * i, a[i], s3.iy, s3.iz); put(2 * N + 2 * i + 1, b[i], s3.iy, s3.iz);
-        put(4 * N + 2 * i, a[i], s3.iy, s3.iz); put(4 * N + 2 * i + 1, a[i], s3.oy, s3.oz);
-        put(6 * N + 2 * i, b[i], s3.iy, s3.iz); put(6 * N + 2 * i + 1, b[i], s3.oy, s3.oz);
-      }
-      const idx = [];
-      for (let i = 0; i < N; i++) {
-        const j = (i + 1) % N;
-        let A2 = 2 * i, B2 = 2 * j;
-        idx.push(A2, B2 + 1, B2, A2, A2 + 1, B2 + 1);
-        A2 = 2 * N + 2 * i; B2 = 2 * N + 2 * j;
-        idx.push(A2, B2, B2 + 1, A2, B2 + 1, A2 + 1);
-        A2 = 4 * N + 2 * i; B2 = 4 * N + 2 * j;
-        idx.push(A2, A2 + 1, B2 + 1, A2, B2 + 1, B2);
-        A2 = 6 * N + 2 * i; B2 = 6 * N + 2 * j;
-        idx.push(A2, B2, B2 + 1, A2, B2 + 1, A2 + 1);
-      }
+      const solid = this.shellSolid(c);
       const geo = new T.BufferGeometry();
-      geo.setAttribute('position', new T.BufferAttribute(pos, 3));
-      geo.setIndex(idx);
+      geo.setAttribute('position', new T.BufferAttribute(new Float32Array(solid.pos), 3));
+      geo.setIndex(solid.idx);
       geo.computeVertexNormals();
       const mesh = new T.Mesh(geo, mat);
       mesh.name = 'BODY_' + this.fileBase().toUpperCase();
       g.add(mesh);
-      this._export = { type: 'shell', pos, idx, name: mesh.name, c };
+      this._export = { type: 'shell', pos: solid.pos, idx: solid.idx, name: mesh.name, c };
+      const st3 = this.shellStations(c);
+      const a = c.a, b = c.b;
       if (glow) {
         addLoop(st3.map((s3, i) => [a[i], s3.oy, s3.oz]));
         addLoop(st3.map((s3, i) => [a[i], s3.iy, s3.iz]));
@@ -1380,7 +1539,7 @@ class Component extends DCLogic {
     if (!e) return null;
     let s = '# ' + this.headerNote() + '\n# 1 unit = 1 INCH. Fusion 360: INSERT > INSERT MESH > Unit Type = Inch\n';
     if (e.type === 'shell') {
-      s += '# Shell body. Rotary-cut edges square to the surface (radial). Wall holes NOT modeled in mesh - see DXF/CSV.\no ' + e.name + '\n';
+      s += '# Shell body. Rotary-cut edges square to the surface (radial). Wall openings modeled as square radial through-wall cuts.\no ' + e.name + '\n';
       for (let i = 0; i < e.pos.length; i += 3) s += 'v ' + e.pos[i].toFixed(5) + ' ' + e.pos[i + 1].toFixed(5) + ' ' + e.pos[i + 2].toFixed(5) + '\n';
       for (let i = 0; i < e.idx.length; i += 3) s += 'f ' + (e.idx[i] + 1) + ' ' + (e.idx[i + 1] + 1) + ' ' + (e.idx[i + 2] + 1) + '\n';
       return s;
@@ -2197,7 +2356,7 @@ class Component extends DCLogic {
         return '\u00D7' + st.qty + ' \u00B7 ' + Math.round(c.wt * st.qty) + ' LB \u00B7 gets a recall code' + prev;
       })(),
       canStep: true,
-      stepSub: c.kind === 'plate' || c.kind === 'angl' ? 'inches embedded · plate solids — COMBINE in CAD · faceted' : 'inches embedded · one faceted solid · wall holes ride in DXF/CSV, not the 3D',
+      stepSub: c.kind === 'plate' || c.kind === 'angl' ? 'inches embedded · plate solids — COMBINE in CAD · faceted' : 'inches embedded · one faceted solid · wall openings modeled — square radial cut',
       dxfSub: (st.dxfRef ? 'CUT + REF + LABELS \u2014 for checking in CAD' : 'CUT GEOMETRY ONLY \u2014 safe for CAM that cuts every line') + (c.kind === 'round' || c.kind === 'box' ? ' \u00B7 seam along the bottom' : ' \u00B7 face bands'),
       dxfRefOn: () => this.setState({ dxfRef: true }),
       dxfRefOff: () => this.setState({ dxfRef: false }),
