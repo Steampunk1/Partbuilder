@@ -1,0 +1,138 @@
+/* ============================================================
+   STEAMPUNK FABRICATION — Color & Type Foundations
+   Industrial welding & fabrication brand.
+   Import this file, then use the CSS variables below.
+   ============================================================ */
+
+/* --- Fonts ---------------------------------------------------
+   The logo wordmark is a custom chrome-beveled industrial italic.
+   Saira Condensed (Black, italic-capable) is the nearest Google
+   Fonts match and is used for display headlines.  FLAGGED: this
+   is a substitution — swap in the licensed logo face if available.
+   ------------------------------------------------------------ */
+
+:root {
+  /* ---------- Brand core ---------- */
+  --ink:            #0A0B0D;   /* logo ground, deepest dark            */
+  --gunmetal-900:   #131619;
+  --gunmetal-800:   #1D2228;
+  --gunmetal-700:   #2A313A;
+  --gunmetal-600:   #3B444F;
+  --slate-navy:     #1B2C49;   /* brand navy (flyer header)            */
+  --slate-navy-600: #25406A;   /* lighter navy                          */
+
+  /* ---------- Steel neutral scale (cool grey) ---------- */
+  --steel-900: #14171B;
+  --steel-800: #21262C;
+  --steel-700: #2F363F;
+  --steel-600: #434C57;
+  --steel-500: #5C6670;
+  --steel-400: #7E8893;
+  --steel-300: #A6AEB7;
+  --steel-200: #C9CFD5;
+  --steel-100: #E4E8EB;
+  --steel-050: #F1F3F5;
+  --chrome:    #F6F8FA;        /* near-white                            */
+
+  /* ---------- Accents ---------- */
+  --hivis:        #A6CE39;     /* safety lime — primary accent          */
+  --hivis-600:    #8DB22A;     /* pressed / darker lime                 */
+  --hivis-300:    #C6E06F;     /* tint                                  */
+  --safety-orange:#E8631A;     /* hazard / hot CTA — use sparingly      */
+  --safety-orange-600:#C44E0F;
+  --weld-amber:   #C9842E;     /* weld-heat tempering tone (tertiary)   */
+
+  /* ---------- Status ---------- */
+  --ok:    #4FA36B;
+  --warn:  #E8A33D;
+  --danger:#D2402F;
+  --info:  #3F86C6;
+
+  /* ---------- Chrome / metal gradients ---------- */
+  --chrome-gradient: linear-gradient(180deg,#FFFFFF 0%,#D7DDE2 18%,#9AA3AB 48%,#5C656E 52%,#AEB6BD 78%,#EEF1F3 100%);
+  --steel-sheen:     linear-gradient(180deg,#E9ECEF 0%,#BFC6CC 45%,#8C949C 55%,#C7CDD2 100%);
+  --navy-fade:       linear-gradient(180deg,#25406A 0%,#1B2C49 60%,#121C30 100%);
+
+  /* ---------- Semantic surfaces ---------- */
+  --bg:          var(--ink);
+  --surface-1:   var(--gunmetal-900);
+  --surface-2:   var(--gunmetal-800);
+  --surface-3:   var(--gunmetal-700);
+  --border:      #323A43;
+  --border-soft: #262C33;
+  --hairline:    rgba(255,255,255,0.08);
+
+  /* on-dark text */
+  --fg:    #EDF0F2;
+  --fg-2:  #AEB6BD;
+  --fg-3:  #79828B;
+  --on-accent: #0A0B0D;
+
+  /* ---------- Type families ---------- */
+  --font-display: 'Saira Condensed', 'Arial Narrow', sans-serif;
+  --font-head:    'Saira', system-ui, sans-serif;
+  --font-body:    'Barlow', system-ui, sans-serif;
+  --font-mono:    'JetBrains Mono', ui-monospace, monospace;
+
+  /* ---------- Type scale (1.25 major-third-ish) ---------- */
+  --t-display: 800 clamp(44px, 6vw, 92px)/0.94 var(--font-display);
+  --t-h1:      800 clamp(34px, 4vw, 56px)/1.02 var(--font-display);
+  --t-h2:      700 clamp(26px, 2.6vw, 38px)/1.06 var(--font-display);
+  --t-h3:      600 22px/1.2 var(--font-head);
+  --t-h4:      600 18px/1.25 var(--font-head);
+  --t-body:    400 16px/1.6 var(--font-body);
+  --t-body-lg: 400 18px/1.6 var(--font-body);
+  --t-small:   500 13px/1.5 var(--font-body);
+  --t-mono:    500 13px/1.5 var(--font-mono);
+  --t-eyebrow: 700 13px/1 var(--font-head);
+
+  /* ---------- Radii (industrial = tight) ---------- */
+  --r-xs: 2px;
+  --r-sm: 4px;
+  --r-md: 6px;
+  --r-lg: 10px;
+  --r-pill: 999px;
+
+  /* ---------- Spacing (8pt grid) ---------- */
+  --sp-1: 4px;  --sp-2: 8px;  --sp-3: 12px; --sp-4: 16px;
+  --sp-5: 24px; --sp-6: 32px; --sp-7: 48px; --sp-8: 64px; --sp-9: 96px;
+
+  /* ---------- Elevation ---------- */
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.4);
+  --shadow-md: 0 6px 18px rgba(0,0,0,.45);
+  --shadow-lg: 0 18px 48px rgba(0,0,0,.55);
+  --inset-top: inset 0 1px 0 rgba(255,255,255,.06);
+
+  /* ---------- Motion ---------- */
+  --ease: cubic-bezier(.2,.7,.3,1);
+  --dur:  .18s;
+}
+
+/* ---------- Semantic element styles ---------- */
+.h-display { font: var(--t-display); text-transform: uppercase; letter-spacing: .01em; font-style: italic; color: var(--fg); }
+.h1 { font: var(--t-h1); text-transform: uppercase; letter-spacing: .01em; color: var(--fg); }
+.h2 { font: var(--t-h2); text-transform: uppercase; letter-spacing: .01em; color: var(--fg); }
+.h3 { font: var(--t-h3); color: var(--fg); }
+.h4 { font: var(--t-h4); color: var(--fg); }
+.body    { font: var(--t-body); color: var(--fg-2); }
+.body-lg { font: var(--t-body-lg); color: var(--fg-2); }
+.small   { font: var(--t-small); color: var(--fg-3); }
+.mono    { font: var(--t-mono); letter-spacing: .02em; color: var(--fg-2); }
+.eyebrow {
+  font: var(--t-eyebrow); text-transform: uppercase; letter-spacing: .22em;
+  color: var(--hivis);
+}
+
+/* Chrome metallic text treatment — for the wordmark / hero only */
+.chrome-text {
+  font: var(--t-display);
+  font-style: italic;
+  text-transform: uppercase;
+  letter-spacing: .01em;
+  background: var(--chrome-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-stroke: 0.5px rgba(0,0,0,.25);
+  filter: drop-shadow(0 2px 2px rgba(0,0,0,.6));
+}

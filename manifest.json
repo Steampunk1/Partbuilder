@@ -1,0 +1,15 @@
+{
+  "name": "Part Builder — Steampunk Fabrication",
+  "short_name": "Part Builder",
+  "description": "Rotary tube-laser part builder: pipe, tube, beam, channel, angle — end cuts, holes, DXF/CSV/3D exports, cut tickets",
+  "start_url": "./",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#0A0B0D",
+  "theme_color": "#A6CE39",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ],
+  "categories": ["utilities", "productivity"]
+}

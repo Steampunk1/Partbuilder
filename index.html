@@ -1,0 +1,753 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Part Builder — Steampunk Fabrication</title>
+<!-- PWA -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#A6CE39">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Part Builder">
+<link rel="apple-touch-icon" href="icon-apple.png">
+<meta name="format-detection" content="telephone=no">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<!-- Fonts + Steampunk design tokens (all local — works offline) -->
+<link rel="stylesheet" href="fonts/fonts.css">
+<link rel="stylesheet" href="assets/colors_and_type.css">
+<!-- three.js, vendored — same pinned 0.184.0 files the prototype used from unpkg -->
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three/three.module.js",
+    "three/addons/controls/OrbitControls.js": "./vendor/three/OrbitControls.js",
+    "three/addons/exporters/OBJExporter.js": "./vendor/three/OBJExporter.js",
+    "three/addons/exporters/GLTFExporter.js": "./vendor/three/GLTFExporter.js"
+  }
+}
+</script>
+<script src="./three-d-stage.js"></script>
+<script src="./vendor/qrcode.js"></script>
+<style>
+  body{margin:0;background:#0A0B0D;overflow:hidden}
+  a{color:#A6CE39}
+  a:hover{color:#C6E06F}
+  button:disabled{opacity:.45;pointer-events:none}
+  three-d-stage:not(:defined){visibility:hidden}
+  ::selection{background:rgba(166,206,57,.35)}
+  input::placeholder{color:#5C6670}
+  .sc-host.sc-has-error{position:relative}
+  .sc-logic-error{position:absolute;top:8px;left:8px;z-index:2147483647;max-width:60ch;
+    padding:6px 10px;background:#b00020;color:#fff;font:12px/1.4 ui-monospace,monospace;
+    border-radius:4px;white-space:pre-wrap;pointer-events:none}
+</style>
+<!-- App runtime: React (vendored) + pb-runtime (template engine) + the logic class -->
+<script src="./vendor/react.production.min.js"></script>
+<script src="./vendor/react-dom.production.min.js"></script>
+<script src="./pb-runtime.js"></script>
+<script src="./app.js"></script>
+</head>
+<body>
+<div id="pb-root"></div>
+<!-- The UI template, kept parser-inert; pb-runtime compiles it at boot.
+     Ported unchanged from Part Builder.dc.html <x-dc> (helmet moved into the
+     real <head> above; sibling-tool links now point at the design project). -->
+<script type="text/pb-template">
+<div style="height:100vh;display:flex;flex-direction:column;background:var(--ink);color:var(--fg);font:var(--t-body)" data-screen-label="Part Builder">
+  <div style="display:flex;align-items:center;gap:16px;padding:0 16px;height:60px;background:var(--gunmetal-900);border-bottom:1px solid var(--border);flex:none">
+    <img src="assets/logo-chrome.jpg" alt="Steampunk Fabrication" style="height:44px;display:block;flex:none">
+    <div style="width:1px;height:32px;background:var(--border);flex:none"></div>
+    <div style="flex:none">
+      <div style="font:700 9.5px/1 var(--font-head);text-transform:uppercase;letter-spacing:.24em;color:var(--hivis)">Shop Tools · 12KW Fiber Laser</div>
+      <div style="margin-top:3px;font:800 22px/1 var(--font-display);font-style:italic;text-transform:uppercase;letter-spacing:.01em;background:var(--chrome-gradient);-webkit-background-clip:text;background-clip:text;color:transparent">Part Builder</div>
+    </div>
+    <div style="flex:1;min-width:0;text-align:center;font:700 12px/1 var(--font-mono);letter-spacing:.05em;color:var(--fg-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ topChip }}</div>
+    <div style="flex:none;font:500 10px/1.5 var(--font-mono);letter-spacing:.06em;color:var(--steel-400);text-align:right">ROTARY TUBE LASER · ANY PROFILE<br>TRUE SIZE — KERF STAYS IN CAM</div>
+    <button onClick="{{ tgHelp }}" style="{{ helpBtnS }}">HOW IT WORKS</button>
+    <button onClick="{{ tgJob }}" style="{{ jobBtnS }}">JOB · {{ jobCount }}</button>
+  </div>
+  <div style="flex:1;min-height:0;display:flex">
+    <div style="width:348px;flex:none;background:var(--gunmetal-900);border-right:1px solid var(--border);overflow-y:auto;overflow-x:hidden;padding:12px 16px 0;display:flex;flex-direction:column">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:2px 4px 6px">
+        <span style="font:700 10px/1 var(--font-head);text-transform:uppercase;letter-spacing:.22em;color:var(--hivis);white-space:nowrap">Step {{ stepN }} of 5 — {{ stepName }}</span>
+        <span style="font:500 10px/1 var(--font-mono);color:var(--fg-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ chip }}</span>
+      </div>
+      <div style="height:3px;background:var(--gunmetal-800);border-radius:2px;margin:0 4px 10px;overflow:hidden;flex:none"><div style="{{ progS }}"></div></div>
+      <button onClick="{{ goto1 }}" style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:transparent;border:0;border-top:1px solid var(--border);padding:11px 4px;cursor:pointer" style-hover="background:rgba(166,206,57,.05)">
+        <span style="{{ n1S }}">{{ n1T }}</span>
+        <span style="flex:1;min-width:0"><span style="display:block;font:700 12px/1 var(--font-head);text-transform:uppercase;letter-spacing:.12em;color:var(--fg)">The stock</span><span style="display:block;margin-top:3px;font:500 9.5px/1.3 var(--font-mono);color:var(--fg-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ sum1 }}</span></span>
+        <span style="flex:none;color:var(--fg-3);font:500 11px/1 var(--font-mono)">{{ car1 }}</span>
+      </button>
+      <sc-if value="{{ open1 }}" hint-placeholder-val="{{ true }}">
+        <div style="padding:2px 4px 14px;display:flex;flex-direction:column;gap:12px">
+          <div style="font:400 11px/1.55 var(--font-body);color:var(--fg-2);border-bottom:1px dashed var(--steel-600);padding-bottom:9px">Pick what you're cutting, its size, cut length and grade. The 3D part and the flat laser program below build live as you type — quick starts set both ends in one tap.</div>
+          <div>
+            <div style="font:500 9px/1 var(--font-mono);color:var(--fg-3);margin-bottom:5px">WHAT ARE WE CUTTING?</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px">
+              <button onClick="{{ pickPipe }}" style="{{ fbPipe }}"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="12" r="8.5"></circle><circle cx="12" cy="12" r="5" opacity="0.45"></circle></svg><span style="font:700 9px/1 var(--font-head);letter-spacing:.1em">PIPE</span></button>
+              <button onClick="{{ pickHss }}" style="{{ fbHss }}"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="4" y="4" width="16" height="16" rx="3.5"></rect><rect x="6.5" y="6.5" width="11" height="11" rx="2" opacity="0.45"></rect></svg><span style="font:700 9px/1 var(--font-head);letter-spacing:.1em">SQ/RECT</span></button>
+              <button onClick="{{ pickBeam }}" style="{{ fbBeam }}"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M5 4.5H19M5 19.5H19M12 4.5V19.5"></path></svg><span style="font:700 9px/1 var(--font-head);letter-spacing:.1em">BEAM</span></button>
+              <button onClick="{{ pickChan }}" style="{{ fbChan }}"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M17 4.5H7V19.5H17"></path></svg><span style="font:700 9px/1 var(--font-head);letter-spacing:.1em">CHANNEL</span></button>
+              <button onClick="{{ pickAngl }}" style="{{ fbAngl }}"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M7 4.5V19.5H19.5"></path></svg><span style="font:700 9px/1 var(--font-head);letter-spacing:.1em">ANGLE</span></button>
+            </div>
+          </div>
+          <sc-if value="{{ isPipe }}" hint-placeholder-val="{{ true }}">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+              <div><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">NPS</div><select data-sv="{{ pnps }}" value="{{ pnps }}" onChange="{{ onPnps }}" style="width:100%;background:var(--gunmetal-800);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 13px/1.2 var(--font-body);padding:9px 6px" style-focus="border-color:#A6CE39;outline:none"><sc-for list="{{ pipeNpsOpts }}" as="o" hint-placeholder-count="8"><option value="{{ o }}">{{ o }}″</option></sc-for></select></div>
+              <div><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">SCHEDULE</div><select data-sv="{{ psch }}" value="{{ psch }}" onChange="{{ onPsch }}" style="width:100%;background:var(--gunmetal-800);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 13px/1.2 var(--font-body);padding:9px 6px" style-focus="border-color:#A6CE39;outline:none"><sc-for list="{{ pipeSchedOpts }}" as="o" hint-placeholder-count="6"><option value="{{ o }}">{{ o }}</option></sc-for></select></div>
+            </div>
+          </sc-if>
+          <sc-if value="{{ isHss }}" hint-placeholder-val="{{ false }}">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+              <div><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">SIZE — TALL × WIDE</div><select data-sv="{{ hsize }}" value="{{ hsize }}" onChange="{{ onHsize }}" style="width:100%;background:var(--gunmetal-800);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 13px/1.2 var(--font-body);padding:9px 6px" style-focus="border-color:#A6CE39;outline:none"><sc-for list="{{ hssSizeOpts }}" as="o" hint-placeholder-count="8"><option value="{{ o }}">HSS {{ o }}</option></sc-for></select></div>
+              <div><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">WALL</div><select data-sv="{{ hwallT }}" value="{{ hwallT }}" onChange="{{ onHwall }}" style="width:100%;background:var(--gunmetal-800);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 13px/1.2 var(--font-body);padding:9px 6px" style-focus="border-color:#A6CE39;outline:none"><sc-for list="{{ hssWallOpts }}" as="o" hint-placeholder-count="6"><option value="{{ o }}">{{ o }}″</option></sc-for></select></div>
+            </div>
+          </sc-if>
+          <sc-if value="{{ isBeam }}" hint-placeholder-val="{{ false }}">
+            <div style="display:grid;grid-template-columns:88px 1fr;gap:6px">
+              <div><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">SERIES</div><select data-sv="{{ bser }}" value="{{ bser }}" onChange="{{ onBser }}" style="width:100%;background:var(--gunmetal-800);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 13px/1.2 var(--font-body);padding:9px 6px" style-focus="border-color:#A6CE39;outline:none"><option value="W">W</option><option value="S">S</option><option value="CUST">CUSTOM</option></select></div>
+              <sc-if value="{{ notCustomBeam }}" hint-placeholder-val="{{ false }}">
+                <div><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">SIZE</div><select data-sv="{{ bsize }}" value="{{ bsize }}" onChange="{{ onBsize }}" style="width:100%;background:var(--gunmetal-800);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 13px/1.2 var(--font-body);padding:9px 6px" style-focus="border-color:#A6CE39;outline:none"><sc-for list="{{ beamSizeOpts }}" as="o" hint-placeholder-count="8"><option value="{{ o }}">{{ o }}</option></sc-for></select></div>
+              </sc-if>
+            </div>
+            <sc-if value="{{ isCustom }}" hint-placeholder-val="{{ false }}">
+              <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 1fr;gap:5px">
+                <div><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">DEPTH</div><input value="{{ cdT }}" onChange="{{ onCd }}" style="width:100%;box-sizing:border-box;background:var(--gunmetal-800);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 12px/1.2 var(--font-mono);padding:6px 6px" style-focus="border-color:#A6CE39;outline:none"></div>
+                <div><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">FLG W</div><input value="{{ cbT }}" onChange="{{ onCb }}" style="width:100%;box-sizing:border-box;background:var(--gunmetal-800);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 12px/1.2 var(--font-mono);padding:6px 6px" style-focus="border-color:#A6CE39;outline:none"></div>
+                <div><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">FLG T</div><input value="{{ ctfT }}" onChange="{{ onCtf }}" style="width:100%;box-sizing:border-box;background:var(--gunmetal-800);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 12px/1.2 var(--font-mono);padding:6px 6px" style-focus="border-color:#A6CE39;outline:none"></div>
+                <div><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">WEB T</div><input value="{{ ctwT }}" onChange="{{ onCtw }}" style="width:100%;box-sizing:border-box;background:var(--gunmetal-800);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 12px/1.2 var(--font-mono);padding:6px 6px" style-focus="border-color:#A6CE39;outline:none"></div>
+                <div><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">LB/FT</div><input value="{{ cwT }}" onChange="{{ onCw }}" style="width:100%;box-sizing:border-box;background:var(--gunmetal-800);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 12px/1.2 var(--font-mono);padding:6px 6px" style-focus="border-color:#A6CE39;outline:none"></div>
+              </div>
+            </sc-if>
+          </sc-if>
+          <sc-if value="{{ isChan }}" hint-placeholder-val="{{ false }}">
+            <div style="display:grid;grid-template-columns:88px 1fr;gap:6px">
+              <div><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">SERIES</div><select data-sv="{{ cser }}" value="{{ cser }}" onChange="{{ onCser }}" style="width:100%;background:var(--gunmetal-800);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 13px/1.2 var(--font-body);padding:9px 6px" style-focus="border-color:#A6CE39;outline:none"><option value="C">C</option><option value="MC">MC</option></select></div>
+              <div><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">SIZE</div><select data-sv="{{ csize }}" value="{{ csize }}" onChange="{{ onCsize }}" style="width:100%;background:var(--gunmetal-800);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 13px/1.2 var(--font-body);padding:9px 6px" style-focus="border-color:#A6CE39;outline:none"><sc-for list="{{ chanSizeOpts }}" as="o" hint-placeholder-count="8"><option value="{{ o }}">{{ o }}</option></sc-for></select></div>
+            </div>
+          </sc-if>
+          <sc-if value="{{ isAngl }}" hint-placeholder-val="{{ false }}">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+              <div><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">LEGS — VERT × HORIZ</div><select data-sv="{{ asize }}" value="{{ asize }}" onChange="{{ onAsize }}" style="width:100%;background:var(--gunmetal-800);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 13px/1.2 var(--font-body);padding:9px 6px" style-focus="border-color:#A6CE39;outline:none"><sc-for list="{{ anglSizeOpts }}" as="o" hint-placeholder-count="8"><option value="{{ o }}">L{{ o }}</option></sc-for></select></div>
+              <div><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">THICKNESS</div><select data-sv="{{ athkT }}" value="{{ athkT }}" onChange="{{ onAthk }}" style="width:100%;background:var(--gunmetal-800);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 13px/1.2 var(--font-body);padding:9px 6px" style-focus="border-color:#A6CE39;outline:none"><sc-for list="{{ anglThkOpts }}" as="o" hint-placeholder-count="6"><option value="{{ o }}">{{ o }}″</option></sc-for></select></div>
+            </div>
+          </sc-if>
+          <div style="font:500 10px/1.5 var(--font-mono);color:var(--fg-3)">{{ stockEcho }}</div>
+          <div>
+            <div style="font:500 9px/1 var(--font-mono);color:var(--fg-3);margin-bottom:4px">QUICK STARTS — SETS BOTH ENDS, TWEAK AFTER</div>
+            <div style="display:flex;flex-wrap:wrap;gap:5px">
+              <sc-for list="{{ quicks }}" as="q" hint-placeholder-count="3">
+                <button onClick="{{ q.go }}" style="padding:7px 10px;cursor:pointer;border-radius:4px;border:1px solid var(--steel-600);background:transparent;color:var(--fg-2);font:700 10px/1 var(--font-head);letter-spacing:.08em;text-transform:uppercase" style-hover="border-color:#A6CE39;color:#C6E06F;background:rgba(166,206,57,.08)">{{ q.l }}</button>
+              </sc-for>
+            </div>
+          </div>
+          <sc-if value="{{ hasParts }}" hint-placeholder-val="{{ false }}">
+            <button onClick="{{ sameLast }}" style="display:block;width:100%;text-align:left;background:transparent;color:var(--fg-2);border:1px dashed var(--steel-600);border-radius:var(--r-sm);padding:8px 10px;font:700 10px/1.3 var(--font-head);text-transform:uppercase;letter-spacing:.08em;cursor:pointer" style-hover="border-color:#A6CE39;color:#C6E06F">Same as last part <span style="text-transform:none;font:500 9px/1.3 var(--font-mono);letter-spacing:.02em;color:var(--fg-3)">— ends + holes + heat copy over, just set length &amp; mark</span></button>
+          </sc-if>
+          <div>
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:4px"><span style="font:500 9px/1 var(--font-mono);color:var(--fg-3)">CUT LENGTH — {{ lenHint }}</span><span style="display:flex;gap:3px;flex:none"><button onClick="{{ lenModeWp }}" title="Type the work-point to work-point length" style="{{ lenWpS }}">WP-WP</button><button onClick="{{ lenModeOal }}" title="Type the overall long-point length off the tape — the app does the take-out math" style="{{ lenOalS }}">LONG PT</button></span></div>
+            <input value="{{ lenT }}" onChange="{{ onLen }}" placeholder="12'-6 3/8" style="width:100%;box-sizing:border-box;background:var(--gunmetal-800);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:600 16px/1.2 var(--font-mono);padding:10px 10px" style-focus="border-color:#A6CE39;outline:none">
+            <div style="margin-top:5px;font:500 10.5px/1.5 var(--font-mono)"><span style="color:var(--fg-3)">READS </span><span style="{{ lenEchoStyle }}">{{ lenEcho }}</span><span style="color:var(--fg-3)"> · type 12'-6 3/8 · 150.375 · 6 1/2</span></div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 110px;gap:6px">
+            <div>
+              <div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">MATERIAL / GRADE</div>
+              <select data-sv="{{ mat }}" value="{{ mat }}" onChange="{{ onMat }}" style="width:100%;background:var(--gunmetal-800);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 12.5px/1.2 var(--font-body);padding:8px 6px" style-focus="border-color:#A6CE39;outline:none"><sc-for list="{{ matOpts }}" as="mo" hint-placeholder-count="4"><option value="{{ mo.id }}">{{ mo.label }}</option></sc-for></select>
+            </div>
+            <div>
+              <div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">MARK #</div>
+              <input value="{{ mark }}" onChange="{{ onMark }}" style="width:100%;box-sizing:border-box;background:var(--gunmetal-800);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 13px/1.2 var(--font-mono);padding:8px 8px" style-focus="border-color:#A6CE39;outline:none">
+            </div>
+          </div>
+          <div style="font:400 9.5px/1.5 var(--font-body);color:var(--fg-3)">MEMO — the mark # is the piece's name on tickets, DXF files and QR codes. It bumps itself (P-1 → P-2) each time you add a part to the job.</div>
+          <button onClick="{{ goto2 }}" style="display:block;width:100%;background:var(--hivis);color:var(--on-accent);border:0;border-radius:var(--r-sm);padding:11px 14px;font:700 14px/1 var(--font-head);text-transform:uppercase;letter-spacing:.05em;cursor:pointer;text-align:left;box-shadow:var(--inset-top)" style-hover="background:#8DB22A" style-active="transform:translateY(1px)">Next — End A <span style="float:right">›</span></button>
+        </div>
+      </sc-if>
+      <sc-for list="{{ endSteps }}" as="ec" hint-placeholder-count="2">
+        <button onClick="{{ ec.goto }}" style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:transparent;border:0;border-top:1px solid var(--border);padding:11px 4px;cursor:pointer" style-hover="background:rgba(166,206,57,.05)">
+          <span style="{{ ec.nS }}">{{ ec.nT }}</span>
+          <span style="flex:1;min-width:0"><span style="display:block;font:700 12px/1 var(--font-head);text-transform:uppercase;letter-spacing:.12em;color:var(--fg)">End {{ ec.id }} <span style="color:var(--fg-3);font:500 9px/1 var(--font-mono);letter-spacing:.04em;text-transform:none">{{ ec.side }}</span></span><span style="display:block;margin-top:3px;font:500 9.5px/1.3 var(--font-mono);color:var(--fg-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ ec.sum }}</span></span>
+          <span style="flex:none;color:var(--fg-3);font:500 11px/1 var(--font-mono)">{{ ec.car }}</span>
+        </button>
+        <sc-if value="{{ ec.open }}" hint-placeholder-val="{{ false }}">
+          <div style="padding:2px 4px 14px;display:flex;flex-direction:column;gap:10px">
+            <div style="font:400 11px/1.55 var(--font-body);color:var(--fg-2);border-bottom:1px dashed var(--steel-600);padding-bottom:9px">End {{ ec.id }} is the <span style="color:var(--fg)">{{ ec.side2 }}</span> end of the part in the 3D view. Pick the cut — everything updates instantly. Add a bevel if this end gets welded.</div>
+            <button onClick="{{ ec.mirror }}" title="Copy the other end's whole setup (cut, bevel, copes) onto this end" style="align-self:flex-start;background:transparent;border:1px solid var(--steel-600);border-radius:var(--r-sm);color:var(--fg-2);font:700 10px/1 var(--font-head);letter-spacing:.08em;text-transform:uppercase;padding:7px 10px;cursor:pointer" style-hover="border-color:#A6CE39;color:#C6E06F">⇄ Same as end {{ ec.otherId }}</button>
+            <sc-if value="{{ ec.isRound }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+                <span style="font:700 10.5px/1.3 var(--font-head);text-transform:uppercase;letter-spacing:.12em;color:var(--fg-2)">End cut</span>
+                <div style="display:flex;gap:4px">
+                  <button onClick="{{ ec.mSq }}" style="{{ ec.mSqS }}">SQUARE</button>
+                  <button onClick="{{ ec.mMiter }}" style="{{ ec.mMiterS }}">MITER</button>
+                  <button onClick="{{ ec.mSaddle }}" style="{{ ec.mSaddleS }}">SADDLE</button>
+                </div>
+              </div>
+              <sc-if value="{{ ec.isMiter }}" hint-placeholder-val="{{ false }}">
+                <div style="border:1px solid var(--border);border-left:2px solid var(--hivis);border-radius:var(--r-sm);background:var(--gunmetal-800);padding:9px 10px">
+                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+                    <div><div style="font:500 8.5px/1.3 var(--font-mono);color:var(--fg-3);margin-bottom:3px">MITER °</div><input type="number" step="0.5" value="{{ ec.maT }}" onChange="{{ ec.sMa }}" style="width:100%;box-sizing:border-box;background:var(--gunmetal-900);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 13px/1.2 var(--font-mono);padding:7px 7px" style-focus="border-color:#A6CE39;outline:none"></div>
+                    <div><div style="font:500 8.5px/1.3 var(--font-mono);color:var(--fg-3);margin-bottom:3px">ROTATION ° — 0 = TOP LONG</div><input type="number" step="5" value="{{ ec.mrT }}" onChange="{{ ec.sMr }}" style="width:100%;box-sizing:border-box;background:var(--gunmetal-900);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 13px/1.2 var(--font-mono);padding:7px 7px" style-focus="border-color:#A6CE39;outline:none"></div>
+                  </div>
+                  <div style="margin-top:6px;font:500 9px/1.5 var(--font-mono);color:var(--fg-3)">angle off square · rotation spins the long point around the pipe</div>
+                </div>
+              </sc-if>
+              <sc-if value="{{ ec.isSaddle }}" hint-placeholder-val="{{ false }}">
+                <div style="border:1px solid var(--border);border-left:2px solid var(--hivis);border-radius:var(--r-sm);background:var(--gunmetal-800);padding:9px 10px;display:flex;flex-direction:column;gap:6px">
+                  <div style="font:400 10px/1.5 var(--font-body);color:var(--fg-2)">Fishmouth — this end wraps around a header pipe. Tell it what the header is and at what angle the branch hits it.</div>
+                  <div style="display:flex;gap:4px;align-items:center;justify-content:space-between"><span style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3)">HEADER IS</span><div style="display:flex;gap:4px"><button onClick="{{ ec.hdrPipe }}" style="{{ ec.hdrPipeS }}">PIPE SIZE</button><button onClick="{{ ec.hdrCustGo }}" style="{{ ec.hdrCustS }}">CUSTOM OD</button></div></div>
+                  <sc-if value="{{ ec.hdrCust }}" hint-placeholder-val="{{ false }}">
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+                      <div><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">HEADER OD</div><input value="{{ ec.sdHodT }}" onChange="{{ ec.sSdHod }}" placeholder="10.75" style="width:100%;box-sizing:border-box;background:var(--gunmetal-900);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 13px/1.2 var(--font-mono);padding:7px 7px" style-focus="border-color:#A6CE39;outline:none"></div>
+                      <div><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">HEADER WALL</div><input value="{{ ec.sdHwT }}" onChange="{{ ec.sSdHw }}" placeholder=".365" style="width:100%;box-sizing:border-box;background:var(--gunmetal-900);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 13px/1.2 var(--font-mono);padding:7px 7px" style-focus="border-color:#A6CE39;outline:none"></div>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{ ec.hdrNps }}" hint-placeholder-val="{{ true }}">
+                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+                    <div><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">HEADER / RUN PIPE</div><select data-sv="{{ ec.sdN }}" value="{{ ec.sdN }}" onChange="{{ ec.sSdN }}" style="width:100%;background:var(--gunmetal-900);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 12px/1.2 var(--font-mono);padding:7px 4px" style-focus="border-color:#A6CE39;outline:none"><sc-for list="{{ ec.npsOpts }}" as="o" hint-placeholder-count="8"><option value="{{ o }}">{{ o }}″</option></sc-for></select></div>
+                    <div><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">HEADER SCHED</div><select data-sv="{{ ec.sdS }}" value="{{ ec.sdS }}" onChange="{{ ec.sSdS }}" style="width:100%;background:var(--gunmetal-900);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 12px/1.2 var(--font-mono);padding:7px 4px" style-focus="border-color:#A6CE39;outline:none"><sc-for list="{{ ec.schedOpts }}" as="o" hint-placeholder-count="6"><option value="{{ o }}">{{ o }}</option></sc-for></select></div>
+                  </div>
+                  </sc-if>
+                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+                    <div><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">JOINT ° — 90 = TEE</div><input type="number" step="1" min="20" max="90" value="{{ ec.sdAT }}" onChange="{{ ec.sSdA }}" style="width:100%;box-sizing:border-box;background:var(--gunmetal-900);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 13px/1.2 var(--font-mono);padding:7px 7px" style-focus="border-color:#A6CE39;outline:none"></div>
+                    <div><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">ROLL ° AROUND BRANCH</div><input type="number" step="5" value="{{ ec.sdRT }}" onChange="{{ ec.sSdR }}" style="width:100%;box-sizing:border-box;background:var(--gunmetal-900);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 13px/1.2 var(--font-mono);padding:7px 7px" style-focus="border-color:#A6CE39;outline:none"></div>
+                  </div>
+                  <div style="display:flex;gap:4px">
+                    <button onClick="{{ ec.seatOn }}" style="{{ ec.seatOnS }}">SET-ON — SEAT OD</button>
+                    <button onClick="{{ ec.seatThru }}" style="{{ ec.seatThruS }}">SET-THRU — SEAT ID</button>
+                  </div>
+                  <div style="font:500 9px/1.5 var(--font-mono);color:var(--fg-3)">{{ ec.sdChip }}</div>
+                  <sc-if value="{{ ec.hasHole }}" hint-placeholder-val="{{ false }}">
+                    <div style="display:flex;align-items:center;gap:8px;border-top:1px dashed var(--steel-600);padding-top:7px">
+                      <span style="flex:1;min-width:0;font:500 9px/1.5 var(--font-mono);color:var(--hivis)">{{ ec.holeDims }}</span>
+                      <button onClick="{{ ec.dlHdrHole }}" style="flex:none;padding:7px 10px;cursor:pointer;border-radius:4px;border:1px solid var(--steel-600);background:transparent;color:var(--fg-2);font:700 10px/1 var(--font-head);letter-spacing:.08em;text-transform:uppercase" style-hover="border-color:#A6CE39;color:#C6E06F">Header hole — DXF</button>
+                    </div>
+                  </sc-if>
+                </div>
+              </sc-if>
+            </sc-if>
+            <sc-if value="{{ ec.notRound }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+                <span style="font:700 10.5px/1.3 var(--font-head);text-transform:uppercase;letter-spacing:.12em;color:var(--fg-2)">End cut</span>
+                <div style="display:flex;gap:4px">
+                  <button onClick="{{ ec.angNo }}" style="{{ ec.angNoS }}">SQUARE</button>
+                  <button onClick="{{ ec.angYes }}" style="{{ ec.angYesS }}">ANGLED</button>
+                </div>
+              </div>
+              <sc-if value="{{ ec.angled }}" hint-placeholder-val="{{ false }}">
+                <div style="border:1px solid var(--border);border-left:2px solid var(--hivis);border-radius:var(--r-sm);background:var(--gunmetal-800);padding:9px 10px">
+                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+                    <div><div style="font:500 8.5px/1.3 var(--font-mono);color:var(--fg-3);margin-bottom:3px">MITER ° — SEEN FROM ABOVE</div><input type="number" step="0.5" value="{{ ec.tpT }}" onChange="{{ ec.sTp }}" style="width:100%;box-sizing:border-box;background:var(--gunmetal-900);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 13px/1.2 var(--font-mono);padding:7px 7px" style-focus="border-color:#A6CE39;outline:none"></div>
+                    <div><div style="font:500 8.5px/1.3 var(--font-mono);color:var(--fg-3);margin-bottom:3px">MITER ° — SEEN FROM SIDE</div><input type="number" step="0.5" value="{{ ec.tvT }}" onChange="{{ ec.sTv }}" style="width:100%;box-sizing:border-box;background:var(--gunmetal-900);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 13px/1.2 var(--font-mono);padding:7px 7px" style-focus="border-color:#A6CE39;outline:none"></div>
+                  </div>
+                  <div style="margin-top:6px;font:500 9px/1.5 var(--font-mono);color:var(--fg-3)">0 = square · use both for a compound cut</div>
+                </div>
+              </sc-if>
+            </sc-if>
+            <sc-if value="{{ ec.showRO }}" hint-placeholder-val="{{ false }}">
+              <div style="border:1px dashed var(--steel-600);border-radius:var(--r-sm);padding:9px 10px">
+                <div style="font:700 9.5px/1 var(--font-head);text-transform:uppercase;letter-spacing:.16em;color:var(--hivis);margin-bottom:6px">Rolling offset helper</div>
+                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px">
+                  <div><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">SET (UP)</div><input value="{{ ec.roST }}" onChange="{{ ec.sRoS }}" style="width:100%;box-sizing:border-box;background:var(--gunmetal-900);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 12px/1.2 var(--font-mono);padding:6px 6px" style-focus="border-color:#A6CE39;outline:none"></div>
+                  <div><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">ROLL (OVER)</div><input value="{{ ec.roRT }}" onChange="{{ ec.sRoR }}" style="width:100%;box-sizing:border-box;background:var(--gunmetal-900);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 12px/1.2 var(--font-mono);padding:6px 6px" style-focus="border-color:#A6CE39;outline:none"></div>
+                  <div><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">ADVANCE</div><input value="{{ ec.roAT }}" onChange="{{ ec.sRoA }}" style="width:100%;box-sizing:border-box;background:var(--gunmetal-900);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 12px/1.2 var(--font-mono);padding:6px 6px" style-focus="border-color:#A6CE39;outline:none"></div>
+                </div>
+                <div style="margin-top:6px;display:flex;align-items:center;justify-content:space-between;gap:8px">
+                  <span style="font:500 9.5px/1.4 var(--font-mono);color:var(--hivis)">{{ ec.roChip }}</span>
+                  <button onClick="{{ ec.roApply }}" style="flex:none;padding:7px 10px;cursor:pointer;border-radius:4px;border:1px solid var(--steel-600);background:transparent;color:var(--fg-2);font:700 10px/1 var(--font-head);letter-spacing:.08em;text-transform:uppercase" style-hover="border-color:#A6CE39;color:#C6E06F">Apply to piece</button>
+                </div>
+              </div>
+            </sc-if>
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+              <span style="font:700 10.5px/1.3 var(--font-head);text-transform:uppercase;letter-spacing:.12em;color:var(--fg-2)">Bevel for weld prep?</span>
+              <div style="display:flex;gap:4px">
+                <button onClick="{{ ec.bevNo }}" style="{{ ec.bevNoS }}">NO</button>
+                <button onClick="{{ ec.bevYes }}" style="{{ ec.bevYesS }}">YES</button>
+              </div>
+            </div>
+            <sc-if value="{{ ec.wantBevel }}" hint-placeholder-val="{{ false }}">
+              <div style="border:1px solid var(--border);border-left:2px solid var(--hivis);border-radius:var(--r-sm);background:var(--gunmetal-800);padding:9px 10px">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+                  <div><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">BEVEL °</div><input type="number" step="0.5" min="0" max="60" value="{{ ec.bvT }}" onChange="{{ ec.sBv }}" style="width:100%;box-sizing:border-box;background:var(--gunmetal-900);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 13px/1.2 var(--font-mono);padding:7px 7px" style-focus="border-color:#A6CE39;outline:none"></div>
+                  <div><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">LAND (ROOT FACE)</div><input value="{{ ec.landT }}" onChange="{{ ec.sLand }}" placeholder="1/16" style="width:100%;box-sizing:border-box;background:var(--gunmetal-900);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 13px/1.2 var(--font-mono);padding:7px 7px" style-focus="border-color:#A6CE39;outline:none"></div>
+                  <sc-if value="{{ ec.isPlateFam }}" hint-placeholder-val="{{ false }}">
+                    <div><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">OPENS TOWARD</div><select data-sv="{{ ec.open2 }}" value="{{ ec.open2 }}" onChange="{{ ec.sOpen }}" style="width:100%;background:var(--gunmetal-900);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 11.5px/1.2 var(--font-mono);padding:7px 4px" style-focus="border-color:#A6CE39;outline:none"><option value="TOP">TOP</option><option value="BOT">BOTTOM</option><option value="NEAR">NEAR FLG</option><option value="FAR">FAR FLG</option><option value="DBL">DOUBLE (K)</option></select></div>
+                    <div><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">ON</div><select data-sv="{{ ec.app }}" value="{{ ec.app }}" onChange="{{ ec.sApp }}" style="width:100%;background:var(--gunmetal-900);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 11.5px/1.2 var(--font-mono);padding:7px 4px" style-focus="border-color:#A6CE39;outline:none"><option value="BOTH">FLANGES + WEB</option><option value="FLG">FLANGES ONLY</option><option value="WEB">WEB ONLY</option></select></div>
+                  </sc-if>
+                </div>
+                <div style="margin-top:6px;font:500 9px/1.5 var(--font-mono);color:var(--fg-3)">rides as a machine note on the ticket + DXF — bevel head comp stays in CAM</div>
+              </div>
+            </sc-if>
+            <sc-if value="{{ ec.isBeamFam }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+                <span style="font:700 10.5px/1.3 var(--font-head);text-transform:uppercase;letter-spacing:.12em;color:var(--fg-2)">Cope or rat holes?</span>
+                <div style="display:flex;gap:4px">
+                  <button onClick="{{ ec.copNo }}" style="{{ ec.copNoS }}">NO</button>
+                  <button onClick="{{ ec.copYes }}" style="{{ ec.copYesS }}">YES</button>
+                </div>
+              </div>
+              <sc-if value="{{ ec.wantCope }}" hint-placeholder-val="{{ false }}">
+                <div style="border:1px solid var(--border);border-left:2px solid var(--hivis);border-radius:var(--r-sm);background:var(--gunmetal-800);padding:9px 10px">
+                  <div style="display:flex;gap:5px;align-items:end">
+                    <button onClick="{{ ec.tgTop }}" style="{{ ec.topBtn }}">TOP COPE</button>
+                    <div><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">LEN</div><input value="{{ ec.tcT }}" onChange="{{ ec.sTc }}" style="width:46px;box-sizing:border-box;background:var(--gunmetal-900);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 11px/1.2 var(--font-mono);padding:5px 4px" style-focus="border-color:#A6CE39;outline:none"></div>
+                    <div><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">DEEP</div><input value="{{ ec.tdT }}" onChange="{{ ec.sTd }}" style="width:46px;box-sizing:border-box;background:var(--gunmetal-900);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 11px/1.2 var(--font-mono);padding:5px 4px" style-focus="border-color:#A6CE39;outline:none"></div>
+                    <div><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">RAD</div><input value="{{ ec.trT }}" onChange="{{ ec.sTr }}" style="width:46px;box-sizing:border-box;background:var(--gunmetal-900);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 11px/1.2 var(--font-mono);padding:5px 4px" style-focus="border-color:#A6CE39;outline:none"></div>
+                  </div>
+                  <div style="display:flex;gap:5px;margin-top:5px;align-items:end">
+                    <button onClick="{{ ec.tgBot }}" style="{{ ec.botBtn }}">BOT COPE</button>
+                    <div><input value="{{ ec.bcT }}" onChange="{{ ec.sBc }}" style="width:46px;box-sizing:border-box;background:var(--gunmetal-900);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 11px/1.2 var(--font-mono);padding:5px 4px" style-focus="border-color:#A6CE39;outline:none"></div>
+                    <div><input value="{{ ec.bdT }}" onChange="{{ ec.sBd }}" style="width:46px;box-sizing:border-box;background:var(--gunmetal-900);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 11px/1.2 var(--font-mono);padding:5px 4px" style-focus="border-color:#A6CE39;outline:none"></div>
+                    <div><input value="{{ ec.brT }}" onChange="{{ ec.sBr }}" style="width:46px;box-sizing:border-box;background:var(--gunmetal-900);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 11px/1.2 var(--font-mono);padding:5px 4px" style-focus="border-color:#A6CE39;outline:none"></div>
+                  </div>
+                  <div style="display:flex;gap:5px;margin-top:8px;align-items:end">
+                    <div style="flex:1"><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">RAT HOLES (WELD ACCESS)</div><select data-sv="{{ ec.rat }}" value="{{ ec.rat }}" onChange="{{ ec.sRat }}" style="width:100%;background:var(--gunmetal-900);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 11.5px/1.2 var(--font-mono);padding:6px 4px" style-focus="border-color:#A6CE39;outline:none"><option value="NONE">NONE</option><option value="TOP">TOP</option><option value="BOT">BOTTOM</option><option value="BOTH">BOTH</option></select></div>
+                    <div><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">RAD</div><input value="{{ ec.rrT }}" onChange="{{ ec.sRr }}" style="width:52px;box-sizing:border-box;background:var(--gunmetal-900);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 11px/1.2 var(--font-mono);padding:5px 4px" style-focus="border-color:#A6CE39;outline:none"></div>
+                  </div>
+                </div>
+              </sc-if>
+            </sc-if>
+            <div style="display:flex;gap:8px">
+              <button onClick="{{ ec.back }}" style="flex:none;background:transparent;color:var(--fg-2);border:1px solid var(--steel-600);border-radius:var(--r-sm);padding:10px 14px;font:700 12px/1 var(--font-head);text-transform:uppercase;letter-spacing:.05em;cursor:pointer" style-hover="border-color:#A6CE39;color:#C6E06F">‹ Back</button>
+              <button onClick="{{ ec.next }}" style="flex:1;background:var(--hivis);color:var(--on-accent);border:0;border-radius:var(--r-sm);padding:10px 14px;font:700 13px/1 var(--font-head);text-transform:uppercase;letter-spacing:.05em;cursor:pointer;text-align:left;box-shadow:var(--inset-top)" style-hover="background:#8DB22A" style-active="transform:translateY(1px)">{{ ec.nextLbl }} <span style="float:right">›</span></button>
+            </div>
+          </div>
+        </sc-if>
+      </sc-for>
+      <button onClick="{{ goto4 }}" style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:transparent;border:0;border-top:1px solid var(--border);padding:11px 4px;cursor:pointer" style-hover="background:rgba(166,206,57,.05)">
+        <span style="{{ n4S }}">{{ n4T }}</span>
+        <span style="flex:1;min-width:0"><span style="display:block;font:700 12px/1 var(--font-head);text-transform:uppercase;letter-spacing:.12em;color:var(--fg)">Holes &amp; slots</span><span style="display:block;margin-top:3px;font:500 9.5px/1.3 var(--font-mono);color:var(--fg-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ sum4 }}</span></span>
+        <span style="flex:none;color:var(--fg-3);font:500 11px/1 var(--font-mono)">{{ car4 }}</span>
+      </button>
+      <sc-if value="{{ open4 }}" hint-placeholder-val="{{ false }}">
+        <div style="padding:2px 4px 14px;display:flex;flex-direction:column;gap:10px">
+          <div style="font:400 11px/1.55 var(--font-body);color:var(--fg-2);border-bottom:1px dashed var(--steel-600);padding-bottom:9px">Three ways to lay out holes — use whichever is fastest:<br><span style="color:var(--hivis)">① CLICK</span> the flat drawing below, right where the hole goes. Move the mouse first — the readout above the drawing tells you exactly where you are (snaps 1/16″). <span style="color:var(--fg)">Drag</span> a hole to slide it · <span style="color:var(--fg)">click</span> a hole to remove it.<br><span style="color:var(--hivis)">② TYPE THE SPOTS</span> — "3, 9, 15 1/2" from either end.<br><span style="color:var(--hivis)">③ PATTERN</span> — first hole + spacing + how many, or a one-tap REAL-JOB SETUP below (drains, vents, outlets, end clips — built per material).<br>Off-material holes get flagged and skipped — never cut wrong.</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+            <span style="font:700 10.5px/1.3 var(--font-head);text-transform:uppercase;letter-spacing:.12em;color:var(--fg-2)">Any holes in this piece?</span>
+            <div style="display:flex;gap:4px">
+              <button onClick="{{ holesNo }}" style="{{ holesNoS }}">NO</button>
+              <button onClick="{{ holesYes }}" style="{{ holesYesS }}">YES</button>
+            </div>
+          </div>
+          <sc-if value="{{ wantHoles }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <sc-for list="{{ groups }}" as="hg" hint-placeholder-count="1">
+                <div style="border:1px solid var(--border);border-left:2px solid var(--hivis);border-radius:var(--r-sm);background:var(--gunmetal-800);padding:9px 9px 10px">
+                  <div style="display:flex;gap:5px;align-items:end;margin-bottom:6px">
+                    <sc-if value="{{ hg.hasFaces }}" hint-placeholder-val="{{ true }}"><div style="flex:1"><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">WHERE</div><select data-sv="{{ hg.face }}" value="{{ hg.face }}" onChange="{{ hg.sFace }}" style="width:100%;background:var(--gunmetal-900);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 11.5px/1.2 var(--font-mono);padding:6px 4px" style-focus="border-color:#A6CE39;outline:none"><sc-for list="{{ hg.faceOpts }}" as="fo" hint-placeholder-count="2"><option value="{{ fo.v }}">{{ fo.l }}</option></sc-for></select></div></sc-if>
+                    <sc-if value="{{ hg.isBoltMat }}" hint-placeholder-val="{{ false }}"><div style="flex:1"><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">BOLT</div><select data-sv="{{ hg.bolt }}" value="{{ hg.bolt }}" onChange="{{ hg.sBolt }}" style="width:100%;background:var(--gunmetal-900);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 11.5px/1.2 var(--font-mono);padding:6px 4px" style-focus="border-color:#A6CE39;outline:none"><option value="1/2">1/2</option><option value="5/8">5/8</option><option value="3/4">3/4</option><option value="7/8">7/8</option><option value="1">1</option><option value="1 1/8">1-1/8</option><option value="1 1/4">1-1/4</option></select></div>
+                    <div style="flex:1.2"><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">HOLE</div><select data-sv="{{ hg.type }}" value="{{ hg.type }}" onChange="{{ hg.sType }}" style="width:100%;background:var(--gunmetal-900);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 11.5px/1.2 var(--font-mono);padding:6px 4px" style-focus="border-color:#A6CE39;outline:none"><option value="std">STANDARD</option><option value="ovs">OVERSIZE</option><option value="ssl">SHORT SLOT</option><option value="lsl">LONG SLOT</option><option value="cust">CUSTOM Ø</option></select></div></sc-if>
+                    <sc-if value="{{ hg.isRoundMat }}" hint-placeholder-val="{{ true }}"><div style="flex:1"><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">BRANCH / OLET</div><select data-sv="{{ hg.bnps }}" value="{{ hg.bnps }}" onChange="{{ hg.sBnps }}" style="width:100%;background:var(--gunmetal-900);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 11.5px/1.2 var(--font-mono);padding:6px 4px" style-focus="border-color:#A6CE39;outline:none"><sc-for list="{{ hg.bnpsOpts }}" as="o" hint-placeholder-count="6"><option value="{{ o }}">{{ o }}″</option></sc-for></select></div>
+                    <div style="flex:1.2"><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">OPENING</div><select data-sv="{{ hg.type }}" value="{{ hg.type }}" onChange="{{ hg.sType }}" style="width:100%;background:var(--gunmetal-900);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 11.5px/1.2 var(--font-mono);padding:6px 4px" style-focus="border-color:#A6CE39;outline:none"><option value="olet">OLET — BORE (ID)</option><option value="stub">STUB — BRANCH OD</option><option value="cust">CUSTOM Ø</option></select></div></sc-if>
+                    <sc-if value="{{ hg.isHssMat }}" hint-placeholder-val="{{ false }}"><div style="flex:1.2"><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">CUTOUT</div><select data-sv="{{ hg.type }}" value="{{ hg.type }}" onChange="{{ hg.sType }}" style="width:100%;background:var(--gunmetal-900);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 11.5px/1.2 var(--font-mono);padding:6px 4px" style-focus="border-color:#A6CE39;outline:none"><option value="cust">ROUND Ø</option><option value="slot">SLOT</option></select></div></sc-if>
+                    <button onClick="{{ hg.del }}" title="Delete group" style="background:transparent;border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg-3);font:700 12px/1 var(--font-mono);padding:6px 8px;cursor:pointer" style-hover="border-color:#D2402F;color:#D2402F">×</button>
+                  </div>
+                  <div style="font:400 9.5px/1.5 var(--font-body);color:var(--fg-3);margin-bottom:6px">{{ hg.explain }}</div>
+                  <sc-if value="{{ hg.isOlet }}" hint-placeholder-val="{{ false }}">
+                    <div style="display:flex;gap:5px;align-items:end;margin-bottom:6px">
+                      <div><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">BRANCH SCHED</div><select data-sv="{{ hg.bsch }}" value="{{ hg.bsch }}" onChange="{{ hg.sBsch }}" style="width:84px;background:var(--gunmetal-900);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 11.5px/1.2 var(--font-mono);padding:6px 4px" style-focus="border-color:#A6CE39;outline:none"><sc-for list="{{ hg.bschOpts }}" as="o" hint-placeholder-count="6"><option value="{{ o }}">{{ o }}</option></sc-for></select></div>
+                      <div style="flex:1;font:500 9px/1.5 var(--font-mono);color:var(--hivis)">{{ hg.diaEcho }}</div>
+                    </div>
+                  </sc-if>
+                  <div style="display:flex;gap:5px;align-items:end;margin-bottom:6px">
+                    <div><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">FROM END</div><select data-sv="{{ hg.refEnd }}" value="{{ hg.refEnd }}" onChange="{{ hg.sRef }}" style="width:52px;background:var(--gunmetal-900);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 11.5px/1.2 var(--font-mono);padding:6px 4px" style-focus="border-color:#A6CE39;outline:none"><option value="A">A</option><option value="B">B</option></select></div>
+                    <div style="flex:1"><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">1ST HOLE @</div><input value="{{ hg.x0T }}" onChange="{{ hg.sX0 }}" style="width:100%;box-sizing:border-box;background:var(--gunmetal-900);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 11px/1.2 var(--font-mono);padding:5px 5px" style-focus="border-color:#A6CE39;outline:none"></div>
+                    <div style="flex:1"><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">SPACING</div><input value="{{ hg.pT }}" onChange="{{ hg.sP }}" style="width:100%;box-sizing:border-box;background:var(--gunmetal-900);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 11px/1.2 var(--font-mono);padding:5px 5px" style-focus="border-color:#A6CE39;outline:none"></div>
+                    <div><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">QTY</div><input type="number" min="1" max="60" value="{{ hg.nT }}" onChange="{{ hg.sN }}" style="width:46px;box-sizing:border-box;background:var(--gunmetal-900);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 11px/1.2 var(--font-mono);padding:5px 5px" style-focus="border-color:#A6CE39;outline:none"></div>
+                  </div>
+                  <div style="margin-bottom:6px">
+                    <div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">OR EXACT SPOTS FROM END {{ hg.refEnd }} — OVERRIDES SPACING <span style="color:var(--steel-500)">(clicks on the drawing land here)</span></div>
+                    <input value="{{ hg.xsT }}" onChange="{{ hg.sXs }}" placeholder="3, 9, 15 1/2" style="width:100%;box-sizing:border-box;background:var(--gunmetal-900);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 11px/1.2 var(--font-mono);padding:5px 5px" style-focus="border-color:#A6CE39;outline:none">
+                  </div>
+                  <sc-if value="{{ hg.isRound }}" hint-placeholder-val="{{ true }}">
+                    <div>
+                      <div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">CLOCK POSITION AROUND THE PIPE — LOOKING IN FROM END A</div>
+                      <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:5px"><sc-for list="{{ hg.clocks }}" as="ck" hint-placeholder-count="6"><button onClick="{{ ck.go }}" title="{{ ck.tip }}" style="{{ ck.s }}">{{ ck.l }}</button></sc-for></div>
+                      <div style="display:flex;gap:5px;align-items:end">
+                        <div style="flex:1"><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">EXACT ° (0 = 12:00)</div><input type="number" step="5" value="{{ hg.azT }}" onChange="{{ hg.sAz }}" style="width:100%;box-sizing:border-box;background:var(--gunmetal-900);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 11px/1.2 var(--font-mono);padding:5px 5px" style-focus="border-color:#A6CE39;outline:none"></div>
+                        <div><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">AROUND</div><input type="number" min="1" max="24" value="{{ hg.aznT }}" onChange="{{ hg.sAzn }}" style="width:52px;box-sizing:border-box;background:var(--gunmetal-900);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 11px/1.2 var(--font-mono);padding:5px 5px" style-focus="border-color:#A6CE39;outline:none"></div>
+                        <div style="flex:1"><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">SPACING °</div><input type="number" step="5" value="{{ hg.azpT }}" onChange="{{ hg.sAzp }}" style="width:100%;box-sizing:border-box;background:var(--gunmetal-900);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 11px/1.2 var(--font-mono);padding:5px 5px" style-focus="border-color:#A6CE39;outline:none"></div>
+                      </div>
+                      <div style="margin-top:4px;font:400 9px/1.45 var(--font-body);color:var(--fg-3)">6:00 dead-bottom is the program seam — nothing cuts ON it. Use 5:00 / 7:00 and roll the pipe at fit-up if it must point straight down.</div>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{ hg.isBoxFace }}" hint-placeholder-val="{{ false }}">
+                    <div style="display:flex;gap:5px;align-items:end">
+                      <div style="flex:1"><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">OFFSET FROM FACE CENTERLINE</div><input value="{{ hg.offT }}" onChange="{{ hg.sOff }}" style="width:100%;box-sizing:border-box;background:var(--gunmetal-900);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 11px/1.2 var(--font-mono);padding:5px 5px" style-focus="border-color:#A6CE39;outline:none"></div>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{ hg.isWeb }}" hint-placeholder-val="{{ false }}">
+                    <div style="display:flex;gap:5px;align-items:end">
+                      <div><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">ROWS FROM</div><select data-sv="{{ hg.wref }}" value="{{ hg.wref }}" onChange="{{ hg.sWref }}" style="width:64px;background:var(--gunmetal-900);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 11.5px/1.2 var(--font-mono);padding:6px 4px" style-focus="border-color:#A6CE39;outline:none"><option value="tos">TOS ↓</option><option value="cl">CL ↓</option><option value="bos">BOS ↑</option></select></div>
+                      <div style="flex:1"><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">TO 1ST ROW</div><input value="{{ hg.y0T }}" onChange="{{ hg.sY0 }}" style="width:100%;box-sizing:border-box;background:var(--gunmetal-900);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 11px/1.2 var(--font-mono);padding:5px 5px" style-focus="border-color:#A6CE39;outline:none"></div>
+                      <div><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">ROWS</div><input type="number" min="1" max="30" value="{{ hg.nyT }}" onChange="{{ hg.sNy }}" style="width:46px;box-sizing:border-box;background:var(--gunmetal-900);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 11px/1.2 var(--font-mono);padding:5px 5px" style-focus="border-color:#A6CE39;outline:none"></div>
+                      <div style="flex:1"><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">ROW PITCH</div><input value="{{ hg.pyT }}" onChange="{{ hg.sPy }}" style="width:100%;box-sizing:border-box;background:var(--gunmetal-900);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 11px/1.2 var(--font-mono);padding:5px 5px" style-focus="border-color:#A6CE39;outline:none"></div>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{ hg.isFlg }}" hint-placeholder-val="{{ false }}">
+                    <div style="display:flex;gap:5px;align-items:end">
+                      <div style="flex:1"><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">ACROSS THE FLANGE</div><select data-sv="{{ hg.amode }}" value="{{ hg.amode }}" onChange="{{ hg.sAmode }}" style="width:100%;background:var(--gunmetal-900);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 11.5px/1.2 var(--font-mono);padding:6px 4px" style-focus="border-color:#A6CE39;outline:none"><option value="gauge">{{ hg.gaugeLabel }}</option><option value="off">SINGLE @ OFFSET</option></select></div>
+                      <div style="flex:1"><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">{{ hg.gLbl }}</div><input value="{{ hg.gT }}" onChange="{{ hg.sG }}" style="width:100%;box-sizing:border-box;background:var(--gunmetal-900);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 11px/1.2 var(--font-mono);padding:5px 5px" style-focus="border-color:#A6CE39;outline:none"></div><sc-if value="{{ hg.hasStdG }}" hint-placeholder-val="{{ false }}"><button onClick="{{ hg.setStdG }}" title="{{ hg.stdTip }}" style="flex:none;padding:6px 8px;cursor:pointer;border-radius:4px;border:1px solid var(--steel-600);background:transparent;color:var(--fg-2);font:700 9px/1 var(--font-head);letter-spacing:.06em;text-transform:uppercase" style-hover="border-color:#A6CE39;color:#C6E06F">Std {{ hg.stdG }}″</button></sc-if>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{ hg.isLeg }}" hint-placeholder-val="{{ false }}">
+                    <div style="display:flex;gap:5px;align-items:end">
+                      <div style="flex:1"><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">GAUGE FROM HEEL</div><input value="{{ hg.gT }}" onChange="{{ hg.sG }}" style="width:100%;box-sizing:border-box;background:var(--gunmetal-900);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 11px/1.2 var(--font-mono);padding:5px 5px" style-focus="border-color:#A6CE39;outline:none"></div><sc-if value="{{ hg.hasStdG }}" hint-placeholder-val="{{ false }}"><button onClick="{{ hg.setStdG }}" title="{{ hg.stdTip }}" style="flex:none;padding:6px 8px;cursor:pointer;border-radius:4px;border:1px solid var(--steel-600);background:transparent;color:var(--fg-2);font:700 9px/1 var(--font-head);letter-spacing:.06em;text-transform:uppercase" style-hover="border-color:#A6CE39;color:#C6E06F">Std {{ hg.stdG }}″</button></sc-if>
+                    </div>
+                  </sc-if>
+                  <div style="display:flex;gap:5px;align-items:end;margin-top:6px">
+                    <sc-if value="{{ hg.isSlot }}" hint-placeholder-val="{{ false }}">
+                      <div><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">SLOT RUNS</div><select data-sv="{{ hg.ax }}" value="{{ hg.ax }}" onChange="{{ hg.sAx }}" style="width:96px;background:var(--gunmetal-900);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 11.5px/1.2 var(--font-mono);padding:6px 4px" style-focus="border-color:#A6CE39;outline:none"><option value="x">ALONG LEN</option><option value="y">ACROSS</option></select></div>
+                    </sc-if>
+                    <sc-if value="{{ hg.showDia }}" hint-placeholder-val="{{ false }}">
+                      <div><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">{{ hg.diaLbl }}</div><input value="{{ hg.diaT }}" onChange="{{ hg.sDia }}" style="width:64px;box-sizing:border-box;background:var(--gunmetal-900);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 11px/1.2 var(--font-mono);padding:5px 5px" style-focus="border-color:#A6CE39;outline:none"></div>
+                    </sc-if>
+                    <sc-if value="{{ hg.isHssSlot }}" hint-placeholder-val="{{ false }}">
+                      <div><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">SLOT LEN</div><input value="{{ hg.sllT }}" onChange="{{ hg.sSll }}" style="width:64px;box-sizing:border-box;background:var(--gunmetal-900);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 11px/1.2 var(--font-mono);padding:5px 5px" style-focus="border-color:#A6CE39;outline:none"></div>
+                    </sc-if>
+                    <sc-if value="{{ hg.canCopyOpp }}" hint-placeholder-val="{{ false }}"><button onClick="{{ hg.copyOpp }}" title="Duplicate this group on the opposite face" style="flex:none;padding:6px 8px;cursor:pointer;border-radius:4px;border:1px solid var(--steel-600);background:transparent;color:var(--fg-2);font:700 8.5px/1 var(--font-head);letter-spacing:.06em;text-transform:uppercase" style-hover="border-color:#A6CE39;color:#C6E06F">Copy → opp face</button></sc-if>
+                    <button onClick="{{ hg.center }}" title="Center along the part LENGTH only: pattern → first-hole dim recalculated; exact spots shift as a set (hole-to-hole stays). Lit lime = already centered." style="{{ hg.cenS }}">⌖ CTR LENGTH</button><sc-if value="{{ hg.hasCtrY }}" hint-placeholder-val="{{ false }}"><button onClick="{{ hg.centerY }}" title="Center across the section HEIGHT only: rows land symmetric about the web centerline (row-to-row spacing stays). Doesn't move anything lengthwise. Lit lime = already centered." style="{{ hg.cenSY }}">⌖ CTR HEIGHT</button></sc-if><div style="flex:1;text-align:right;font:500 10px/1.4 var(--font-mono);color:var(--hivis)">{{ hg.chip }}</div>
+                  </div>
+                </div>
+              </sc-for>
+              <div>
+                <div style="font:500 9px/1 var(--font-mono);color:var(--fg-3);margin-bottom:4px">REAL-JOB SETUPS — ONE TAP ADDS A FILLED-IN GROUP · <span style="color:var(--steel-500)">HOVER A BUTTON FOR WHAT IT'S FOR</span></div>
+                <div style="display:flex;flex-wrap:wrap;gap:5px">
+                  <sc-for list="{{ recipes }}" as="rp" hint-placeholder-count="4"><button onClick="{{ rp.go }}" title="{{ rp.tip }}" style="padding:7px 10px;cursor:pointer;border-radius:4px;border:1px solid var(--steel-600);background:transparent;color:var(--fg-2);font:700 10px/1 var(--font-head);letter-spacing:.08em;text-transform:uppercase" style-hover="border-color:#A6CE39;color:#C6E06F">{{ rp.l }}</button></sc-for>
+                </div>
+              </div>
+              <button onClick="{{ addGroup }}" style="background:transparent;border:1px dashed var(--steel-600);border-radius:var(--r-sm);color:var(--fg-2);font:700 11px/1 var(--font-head);text-transform:uppercase;letter-spacing:.08em;padding:9px 10px;cursor:pointer" style-hover="border-color:#A6CE39;color:#C6E06F">+ Another hole group</button>
+            </div>
+          </sc-if>
+          <div style="display:flex;gap:8px">
+            <button onClick="{{ goto3b }}" style="flex:none;background:transparent;color:var(--fg-2);border:1px solid var(--steel-600);border-radius:var(--r-sm);padding:10px 14px;font:700 12px/1 var(--font-head);text-transform:uppercase;letter-spacing:.05em;cursor:pointer" style-hover="border-color:#A6CE39;color:#C6E06F">‹ Back</button>
+            <button onClick="{{ goto5 }}" style="flex:1;background:var(--hivis);color:var(--on-accent);border:0;border-radius:var(--r-sm);padding:10px 14px;font:700 13px/1 var(--font-head);text-transform:uppercase;letter-spacing:.05em;cursor:pointer;text-align:left;box-shadow:var(--inset-top)" style-hover="background:#8DB22A" style-active="transform:translateY(1px)">Review &amp; cut <span style="float:right">›</span></button>
+          </div>
+        </div>
+      </sc-if>
+      <button onClick="{{ goto5 }}" style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:transparent;border:0;border-top:1px solid var(--border);padding:11px 4px;cursor:pointer" style-hover="background:rgba(166,206,57,.05)">
+        <span style="{{ n5S }}">{{ n5T }}</span>
+        <span style="flex:1;min-width:0"><span style="display:block;font:700 12px/1 var(--font-head);text-transform:uppercase;letter-spacing:.12em;color:var(--fg)">Review &amp; cut</span><span style="display:block;margin-top:3px;font:500 9.5px/1.3 var(--font-mono);color:var(--fg-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ sum5 }}</span></span>
+        <span style="flex:none;color:var(--fg-3);font:500 11px/1 var(--font-mono)">{{ car5 }}</span>
+      </button>
+      <sc-if value="{{ open5 }}" hint-placeholder-val="{{ false }}">
+        <div style="padding:2px 4px 14px;display:flex;flex-direction:column;gap:12px">
+          <div style="font:400 11px/1.55 var(--font-body);color:var(--fg-2);border-bottom:1px dashed var(--steel-600);padding-bottom:9px">Last check before steel. Clear any red flags, then pull your files below — or add the part to the job list and start the next one (the mark number bumps itself).</div>
+          <sc-if value="{{ hasIssues }}" hint-placeholder-val="{{ false }}">
+            <div style="border:1px solid var(--danger);background:rgba(210,64,47,.10);border-radius:var(--r-sm);padding:10px 12px">
+              <div style="font:700 10px/1 var(--font-head);text-transform:uppercase;letter-spacing:.18em;color:var(--danger);margin-bottom:6px">Check before cutting</div>
+              <sc-for list="{{ issues }}" as="w" hint-placeholder-count="1">
+                <div style="font:400 11.5px/1.5 var(--font-body);color:var(--fg-2);margin-bottom:3px"><span style="{{ w.dot }}">■</span> {{ w.t }}</div>
+              </sc-for>
+            </div>
+          </sc-if>
+          <div style="background:var(--gunmetal-800);border:1px solid var(--border);border-radius:var(--r-sm);box-shadow:var(--inset-top);padding:12px 14px;display:flex;flex-direction:column;gap:6px">
+            <div style="display:flex;justify-content:space-between;font:500 11px/1.4 var(--font-mono)"><span style="color:var(--fg-3)">SECTION</span><span style="color:var(--fg-2)">{{ specShape }}</span></div>
+            <div style="display:flex;justify-content:space-between;font:500 11px/1.4 var(--font-mono)"><span style="color:var(--fg-3)">CL LENGTH</span><span style="color:var(--fg-2)">{{ specCL }}</span></div>
+            <div style="display:flex;justify-content:space-between;font:500 11px/1.4 var(--font-mono)"><span style="color:var(--fg-3)">LONG POINT</span><span style="color:var(--hivis)">{{ specLP }}</span></div>
+            <div style="display:flex;justify-content:space-between;font:500 11px/1.4 var(--font-mono)"><span style="color:var(--fg-3)">SHORT POINT</span><span style="color:var(--fg-2)">{{ specSP }}</span></div>
+            <div style="display:flex;justify-content:space-between;font:500 11px/1.4 var(--font-mono)"><span style="color:var(--fg-3)">HOLES</span><span style="color:var(--fg-2)">{{ specHoles }}</span></div>
+            <div style="display:flex;justify-content:space-between;font:500 11px/1.4 var(--font-mono)"><span style="color:var(--fg-3)">WEIGHT EA ≈</span><span style="color:var(--fg-2)">{{ specWt }}</span></div>
+          </div>
+          <div>
+            <div style="font:500 9px/1 var(--font-mono);color:var(--fg-3);margin-bottom:4px">FOR THE TICKET (ALL OPTIONAL)</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px">
+              <input value="{{ job }}" onChange="{{ onJob }}" placeholder="JOB #" style="width:100%;box-sizing:border-box;background:var(--gunmetal-800);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 11.5px/1.2 var(--font-mono);padding:7px 7px" style-focus="border-color:#A6CE39;outline:none">
+              <input value="{{ heat }}" onChange="{{ onHeat }}" placeholder="HEAT #" style="width:100%;box-sizing:border-box;background:var(--gunmetal-800);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 11.5px/1.2 var(--font-mono);padding:7px 7px" style-focus="border-color:#A6CE39;outline:none">
+              <input type="number" min="1" value="{{ qty }}" onChange="{{ onQty }}" placeholder="QTY" style="width:100%;box-sizing:border-box;background:var(--gunmetal-800);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 11.5px/1.2 var(--font-mono);padding:7px 7px" style-focus="border-color:#A6CE39;outline:none">
+            </div>
+          </div>
+          <button onClick="{{ addToJob }}" disabled="{{ invalid }}" style="display:block;width:100%;text-align:left;background:var(--hivis);color:var(--on-accent);border:0;border-radius:var(--r-sm);padding:12px 14px;font:700 15px/1.1 var(--font-head);text-transform:uppercase;letter-spacing:.04em;cursor:pointer;box-shadow:var(--inset-top)" style-hover="background:#8DB22A" style-active="transform:translateY(1px)">+ Add to job list <span style="float:right">›</span><span style="display:block;margin-top:3px;font:500 9.5px/1.3 var(--font-mono);letter-spacing:.04em;text-transform:none;opacity:.8">{{ addSub }}</span></button>
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+            <span style="font:500 9px/1.4 var(--font-mono);color:var(--fg-3)">DXF FILES CARRY</span>
+            <span style="display:flex;gap:3px"><button onClick="{{ dxfRefOff }}" title="Only the geometry the laser cuts — safe for CAM that imports every line" style="{{ dxfRefOffS }}">CUT ONLY</button><button onClick="{{ dxfRefOn }}" title="Adds seam/WP reference lines and labels — for checking in CAD, not for the machine" style="{{ dxfRefOnS }}">+ REF &amp; LABELS</button></span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <button onClick="{{ dlDxf }}" disabled="{{ invalid }}" style="display:block;width:100%;text-align:left;background:transparent;color:var(--fg);border:1px solid var(--steel-600);border-radius:var(--r-sm);padding:11px 14px;font:700 13px/1.1 var(--font-head);text-transform:uppercase;letter-spacing:.04em;cursor:pointer" style-hover="border-color:#A6CE39;background:rgba(166,206,57,.08)" style-active="transform:translateY(1px)">Cut program — DXF <span style="float:right">›</span><span style="display:block;margin-top:3px;font:500 9.5px/1.3 var(--font-mono);letter-spacing:.04em;text-transform:none;opacity:.7;color:var(--fg-2)">{{ dxfSub }}</span></button>
+            <button onClick="{{ dlObj }}" disabled="{{ invalid }}" style="display:block;width:100%;text-align:left;background:transparent;color:var(--fg);border:1px solid var(--steel-600);border-radius:var(--r-sm);padding:11px 14px;font:700 13px/1.1 var(--font-head);text-transform:uppercase;letter-spacing:.04em;cursor:pointer" style-hover="border-color:#A6CE39;background:rgba(166,206,57,.08)" style-active="transform:translateY(1px)">3D mesh — OBJ <span style="float:right">›</span><span style="display:block;margin-top:3px;font:500 9.5px/1.3 var(--font-mono);letter-spacing:.04em;text-transform:none;opacity:.7;color:var(--fg-2)">Fusion 360: INSERT ▸ INSERT MESH · set Unit Type = INCH</span></button>
+            <sc-if value="{{ canStep }}" hint-placeholder-val="{{ false }}">
+              <button onClick="{{ dlStep }}" disabled="{{ invalid }}" style="display:block;width:100%;text-align:left;background:transparent;color:var(--fg);border:1px solid var(--steel-600);border-radius:var(--r-sm);padding:11px 14px;font:700 13px/1.1 var(--font-head);text-transform:uppercase;letter-spacing:.04em;cursor:pointer" style-hover="border-color:#A6CE39;background:rgba(166,206,57,.08)" style-active="transform:translateY(1px)">3D solid — STEP <span style="float:right">›</span><span style="display:block;margin-top:3px;font:500 9.5px/1.3 var(--font-mono);letter-spacing:.04em;text-transform:none;opacity:.7;color:var(--fg-2)">{{ stepSub }}</span></button>
+            </sc-if>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+              <button onClick="{{ dlCsv }}" disabled="{{ invalid }}" style="display:block;text-align:left;background:transparent;color:var(--fg);border:1px solid var(--steel-600);border-radius:var(--r-sm);padding:10px 12px;font:700 12px/1.1 var(--font-head);text-transform:uppercase;letter-spacing:.04em;cursor:pointer" style-hover="border-color:#A6CE39;background:rgba(166,206,57,.08)" style-active="transform:translateY(1px)">Hole table — CSV</button>
+              <button onClick="{{ dlTicket }}" disabled="{{ invalid }}" style="display:block;text-align:left;background:transparent;color:var(--fg);border:1px solid var(--steel-600);border-radius:var(--r-sm);padding:10px 12px;font:700 12px/1.1 var(--font-head);text-transform:uppercase;letter-spacing:.04em;cursor:pointer" style-hover="border-color:#A6CE39;background:rgba(166,206,57,.08)" style-active="transform:translateY(1px)">Cut ticket — print</button>
+              <sc-if value="{{ hdrA }}" hint-placeholder-val="{{ false }}"><button onClick="{{ dlHdrA }}" disabled="{{ invalid }}" style="display:block;text-align:left;background:transparent;color:var(--fg);border:1px solid var(--steel-600);border-radius:var(--r-sm);padding:10px 12px;font:700 12px/1.1 var(--font-head);text-transform:uppercase;letter-spacing:.04em;cursor:pointer" style-hover="border-color:#A6CE39;background:rgba(166,206,57,.08)" style-active="transform:translateY(1px)">Header hole A — DXF</button></sc-if>
+              <sc-if value="{{ hdrB }}" hint-placeholder-val="{{ false }}"><button onClick="{{ dlHdrB }}" disabled="{{ invalid }}" style="display:block;text-align:left;background:transparent;color:var(--fg);border:1px solid var(--steel-600);border-radius:var(--r-sm);padding:10px 12px;font:700 12px/1.1 var(--font-head);text-transform:uppercase;letter-spacing:.04em;cursor:pointer" style-hover="border-color:#A6CE39;background:rgba(166,206,57,.08)" style-active="transform:translateY(1px)">Header hole B — DXF</button></sc-if>
+            </div>
+          </div>
+          <div style="font:400 11.5px/1.55 var(--font-body);color:var(--fg-3)">True size — kerf and bevel-head comp stay in CAM. Nominal dims; verify odd sizes. Rotary parts program measured OD. <a href="https://claude.ai/design/p/626ce35c-af86-433a-9111-3c758cfd4c52?file=Saddle+Cut+Generator.dc.html" target="_blank" rel="noopener">saddle tool ›</a> · <a href="https://claude.ai/design/p/626ce35c-af86-433a-9111-3c758cfd4c52?file=I-Beam+Processor+v4.dc.html" target="_blank" rel="noopener">beam tool ›</a></div>
+        </div>
+      </sc-if>
+      <div style="border-top:1px solid var(--border)"></div>
+      <div style="position:sticky;bottom:0;margin-top:auto;background:var(--gunmetal-900);border-top:1px solid var(--border);padding:10px 0 14px">
+        <button onClick="{{ goto5 }}" style="display:block;width:100%;text-align:left;background:var(--hivis);color:var(--on-accent);border:0;border-radius:var(--r-sm);padding:11px 14px;font:700 14px/1 var(--font-head);text-transform:uppercase;letter-spacing:.05em;cursor:pointer;box-shadow:var(--inset-top)" style-hover="background:#8DB22A" style-active="transform:translateY(1px)">Review &amp; cut <span style="float:right">›</span><span style="display:block;margin-top:3px;font:500 9px/1.3 var(--font-mono);letter-spacing:.04em;text-transform:none;opacity:.8">{{ ctaSub }}</span></button>
+      </div>
+    </div>
+    <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+      <div style="flex:1;min-height:0;position:relative">
+        <three-d-stage ref="{{ stageRef }}" name="{{ fileBase }}" background="#101317" autorotate="true" style="position:absolute;inset:0;width:100%;height:100%"></three-d-stage>
+        <div style="position:absolute;top:12px;left:12px;pointer-events:none;background:rgba(10,11,13,.72);border:1px solid var(--border);border-radius:var(--r-sm);padding:8px 12px;font:700 12px/1 var(--font-mono);letter-spacing:.05em;color:var(--fg)">{{ chip }}</div>
+        <div style="position:absolute;top:12px;right:12px;display:flex;gap:6px">
+          <sc-if value="{{ hasSaddle }}" hint-placeholder-val="{{ false }}"><button onClick="{{ onGhost }}" style="{{ ghostBtnS }}">{{ ghostLbl }}</button></sc-if>
+          <button onClick="{{ onFit }}" style="{{ fitBtnS }}">RE-FRAME</button>
+          <button onClick="{{ onSpin }}" style="{{ spinBtnS }}">{{ spinLbl }}</button>
+        </div>
+        <div style="position:absolute;bottom:10px;left:12px;pointer-events:none;font:500 10px/1 var(--font-mono);letter-spacing:.08em;color:var(--steel-500)">DRAG ORBIT · SCROLL ZOOM · RIGHT-DRAG PAN · A = LEFT · B = RIGHT (TURN SPIN OFF TO CHECK)</div>
+        <sc-if value="{{ showEndTags }}" hint-placeholder-val="{{ false }}">
+          <div style="position:absolute;top:50%;left:12px;transform:translateY(-50%);pointer-events:none;background:rgba(10,11,13,.66);border:1px solid var(--border);border-radius:var(--r-sm);padding:6px 9px;font:700 10.5px/1 var(--font-mono);letter-spacing:.06em;color:var(--hivis)">◂ END A</div>
+          <div style="position:absolute;top:50%;right:12px;transform:translateY(-50%);pointer-events:none;background:rgba(10,11,13,.66);border:1px solid var(--border);border-radius:var(--r-sm);padding:6px 9px;font:700 10.5px/1 var(--font-mono);letter-spacing:.06em;color:var(--hivis)">END B ▸</div>
+        </sc-if>
+        <sc-if value="{{ helpOpen }}" hint-placeholder-val="{{ false }}">
+          <div style="position:absolute;inset:0;background:rgba(10,11,13,.82);display:flex;align-items:center;justify-content:center;padding:20px;z-index:5">
+            <div style="width:min(680px,100%);max-height:100%;overflow-y:auto;background:var(--gunmetal-900);border:1px solid var(--steel-600);border-radius:6px;box-shadow:0 6px 18px rgba(0,0,0,.45);padding:18px 20px 20px">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px">
+                <span style="font:800 18px/1 var(--font-display);font-style:italic;text-transform:uppercase;letter-spacing:.01em;color:var(--fg)">How this works — 5 steps, top left</span>
+                <button onClick="{{ closeHelp }}" style="background:transparent;border:1px solid var(--steel-600);border-radius:4px;color:var(--fg-2);font:700 12px/1 var(--font-mono);padding:6px 9px;cursor:pointer" style-hover="border-color:#A6CE39;color:#C6E06F">✕</button>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:8px">
+                <div style="display:flex;gap:10px"><span style="flex:none;width:20px;height:20px;border-radius:10px;background:rgba(166,206,57,.12);border:1px solid var(--hivis);color:var(--hivis);display:inline-flex;align-items:center;justify-content:center;font:700 10.5px/1 var(--font-mono)">1</span><span style="font:400 11.5px/1.55 var(--font-body);color:var(--fg-2)"><span style="color:var(--fg);font:700 11px/1.55 var(--font-head);letter-spacing:.08em">THE STOCK — </span>pipe, square tube, beam, channel or angle. Size, cut length, grade, mark number.</span></div>
+                <div style="display:flex;gap:10px"><span style="flex:none;width:20px;height:20px;border-radius:10px;background:rgba(166,206,57,.12);border:1px solid var(--hivis);color:var(--hivis);display:inline-flex;align-items:center;justify-content:center;font:700 10.5px/1 var(--font-mono)">2</span><span style="font:400 11.5px/1.55 var(--font-body);color:var(--fg-2)"><span style="color:var(--fg);font:700 11px/1.55 var(--font-head);letter-spacing:.08em">END A (LEFT) — </span>square, miter or saddle fishmouth, plus a weld bevel if it gets welded.</span></div>
+                <div style="display:flex;gap:10px"><span style="flex:none;width:20px;height:20px;border-radius:10px;background:rgba(166,206,57,.12);border:1px solid var(--hivis);color:var(--hivis);display:inline-flex;align-items:center;justify-content:center;font:700 10.5px/1 var(--font-mono)">3</span><span style="font:400 11.5px/1.55 var(--font-body);color:var(--fg-2)"><span style="color:var(--fg);font:700 11px/1.55 var(--font-head);letter-spacing:.08em">END B (RIGHT) — </span>same choices. The 3D part and the flat program update as you type.</span></div>
+                <div style="display:flex;gap:10px"><span style="flex:none;width:20px;height:20px;border-radius:10px;background:rgba(166,206,57,.12);border:1px solid var(--hivis);color:var(--hivis);display:inline-flex;align-items:center;justify-content:center;font:700 10.5px/1 var(--font-mono)">4</span><span style="font:400 11.5px/1.55 var(--font-body);color:var(--fg-2)"><span style="color:var(--fg);font:700 11px/1.55 var(--font-head);letter-spacing:.08em">HOLES — </span>hover the flat drawing and a readout shows where you are. Click to drop a hole right there, drag a hole to slide it, click a hole to remove it. Or type exact spots like "3, 9, 15 1/2", or use a pattern (first hole + spacing + qty). Off-material holes get flagged, never cut wrong.</span></div>
+                <div style="display:flex;gap:10px"><span style="flex:none;width:20px;height:20px;border-radius:10px;background:rgba(166,206,57,.12);border:1px solid var(--hivis);color:var(--hivis);display:inline-flex;align-items:center;justify-content:center;font:700 10.5px/1 var(--font-mono)">5</span><span style="font:400 11.5px/1.55 var(--font-body);color:var(--fg-2)"><span style="color:var(--fg);font:700 11px/1.55 var(--font-head);letter-spacing:.08em">REVIEW &amp; CUT — </span>clear the red flags, then pull the DXF cut program, 3D model or printed cut ticket — or ADD TO JOB LIST to stack parts, nest sticks and print one pull list.</span></div>
+              </div>
+              <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:10px">
+                <div style="font:700 9.5px/1 var(--font-head);letter-spacing:.2em;text-transform:uppercase;color:var(--hivis);margin-bottom:8px">Shop terms used here</div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;font:400 10.5px/1.55 var(--font-body);color:var(--fg-2)">
+                  <div><span style="color:var(--fg);font-weight:700">WP</span> — work point. Lengths measure WP to WP. On a saddle end the WP is the header centerline.</div>
+                  <div><span style="color:var(--fg);font-weight:700">LP / SP</span> — long point / short point of an angled cut.</div>
+                  <div><span style="color:var(--fg);font-weight:700">WRAP</span> — the tube peeled open flat. That flat drawing IS the laser program. The seam runs along the bottom of the part.</div>
+                  <div><span style="color:var(--fg);font-weight:700">SET-ON / SET-THRU</span> — branch sits on the header OD, or drops through to the header ID.</div>
+                  <div><span style="color:var(--fg);font-weight:700">LAND</span> — flat left on the edge under a bevel (root face).</div>
+                  <div><span style="color:var(--fg);font-weight:700">GAUGE</span> — spacing of hole lines across a flange, or from an angle's heel.</div>
+                </div>
+              </div>
+              <button onClick="{{ closeHelp }}" style="margin-top:14px;display:block;width:100%;text-align:left;background:var(--hivis);color:var(--on-accent);border:0;border-radius:var(--r-sm);padding:11px 14px;font:700 14px/1 var(--font-head);text-transform:uppercase;letter-spacing:.05em;cursor:pointer;box-shadow:var(--inset-top)" style-hover="background:#8DB22A" style-active="transform:translateY(1px)">Got it — let's cut <span style="float:right">›</span></button>
+            </div>
+          </div>
+        </sc-if>
+      </div>
+      <div style="flex:none;height:224px;background:var(--gunmetal-900);border-top:1px solid var(--border);padding:10px 16px 8px;display:flex;flex-direction:column">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
+          <span style="font:700 10px/1 var(--font-head);text-transform:uppercase;letter-spacing:.2em;color:var(--hivis)">{{ bandTitle }}</span>
+          <span style="{{ bandLegendS }}">{{ bandLegend }}</span>
+        </div>
+        <svg viewBox="{{ vb }}" preserveAspectRatio="xMidYMid meet" onClick="{{ onBand }}" onMouseDown="{{ onBandDown }}" onMouseMove="{{ onBandMove }}" onMouseLeave="{{ onBandLeave }}" style="flex:1;width:100%;min-height:0;cursor:crosshair">
+          <path d="{{ gridP }}" stroke="#1E242B" stroke-width="{{ swThin }}" fill="none"></path>
+          <path d="{{ refP }}" stroke="#2A323B" stroke-width="{{ swThin }}" fill="none"></path>
+          <path d="{{ wpP }}" stroke="#434C57" stroke-width="{{ swThin }}" stroke-dasharray="{{ dash }}" fill="none"></path>
+          <path d="{{ outAP }}" fill="#181D23" stroke="#A6AEB7" stroke-width="{{ sw }}"></path>
+          <path d="{{ outBP }}" fill="#181D23" stroke="#A6AEB7" stroke-width="{{ sw }}"></path>
+          <path d="{{ outCP }}" fill="#181D23" stroke="#A6AEB7" stroke-width="{{ sw }}"></path>
+          <path d="{{ holesP }}" fill="none" stroke="#A6CE39" stroke-width="{{ sw }}"></path>
+          <sc-if value="{{ hovOn }}" hint-placeholder-val="{{ false }}"><path d="{{ hovP }}" fill="none" stroke="#E8A33D" stroke-width="{{ swThin }}" stroke-dasharray="{{ dash }}" pointer-events="none"></path></sc-if>
+          <sc-for list="{{ bandLbls }}" as="bl" hint-placeholder-count="2"><text x="{{ bl.x }}" y="{{ bl.y }}" style="{{ bl.s }}">{{ bl.t }}</text></sc-for>
+        </svg>
+        <div style="display:flex;justify-content:space-between;gap:16px;font:500 10px/1.5 var(--font-mono);color:var(--fg-2);padding-top:4px">
+          <span style="color:var(--fg-2)">A ▸ {{ endASpec }}</span>
+          <span style="color:var(--hivis);white-space:nowrap">{{ holeChip }}</span>
+          <span style="text-align:right">B ▸ {{ endBSpec }}</span>
+        </div>
+      </div>
+    </div>
+    <sc-if value="{{ jobOpen }}" hint-placeholder-val="{{ true }}">
+      <div style="width:312px;flex:none;background:var(--gunmetal-900);border-left:1px solid var(--border);overflow-y:auto;overflow-x:hidden;padding:12px 14px 16px;display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+          <span style="flex:1;font:700 11px/1 var(--font-head);text-transform:uppercase;letter-spacing:.2em;color:var(--hivis)">Job list</span>
+          <button onClick="{{ newJob }}" title="File this job under PAST JOBS and reset everything" style="flex:none;padding:6px 9px;cursor:pointer;border-radius:4px;border:1px solid var(--steel-600);background:transparent;color:var(--fg-2);font:700 9px/1 var(--font-head);letter-spacing:.1em;text-transform:uppercase" style-hover="border-color:#A6CE39;color:#C6E06F">+ New job</button>
+          <input value="{{ job }}" onChange="{{ onJob }}" placeholder="JOB #" style="width:84px;box-sizing:border-box;background:var(--gunmetal-800);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 11px/1.2 var(--font-mono);padding:6px 7px;text-align:right" style-focus="border-color:#A6CE39;outline:none">
+        </div>
+        <sc-if value="{{ jobEmpty }}" hint-placeholder-val="{{ true }}">
+          <div style="border:1px dashed var(--steel-600);border-radius:var(--r-sm);padding:18px 14px;text-align:center">
+            <img src="assets/logo-chrome.jpg" alt="" style="height:34px;opacity:.8">
+            <div style="margin-top:8px;font:400 11.5px/1.5 var(--font-body);color:var(--fg-3)">Build a part, then <span style="color:var(--fg-2)">ADD TO JOB LIST</span> on step 5. Parts stack here for nesting, weight, cost and one combined ticket. When the job ships, hit <span style="color:var(--fg-2)">+ NEW JOB</span> — it files under PAST JOBS below and everything resets.</div>
+          </div>
+        </sc-if>
+        <sc-for list="{{ jobParts }}" as="jp" hint-placeholder-count="2">
+          <div style="border:1px solid var(--border);border-radius:var(--r-sm);background:var(--gunmetal-800);padding:8px 9px">
+            <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px">
+              <span style="font:700 12px/1 var(--font-mono);color:var(--fg)">{{ jp.mark }} <span style="color:var(--fg-3);font:500 10px/1 var(--font-mono)">{{ jp.qtyT }}</span></span>
+              <span style="font:500 10px/1 var(--font-mono);color:var(--hivis)">{{ jp.code }}</span>
+            </div>
+            <div style="margin-top:4px;font:500 9.5px/1.4 var(--font-mono);color:var(--fg-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ jp.desc }}</div>
+            <div style="margin-top:2px;display:flex;justify-content:space-between;font:500 9.5px/1.4 var(--font-mono);color:var(--fg-2)"><span>{{ jp.len }}</span><span>{{ jp.wt }}</span></div>
+            <div style="margin-top:6px;display:flex;gap:4px">
+              <button onClick="{{ jp.load }}" style="flex:1;padding:5px 6px;cursor:pointer;border-radius:4px;border:1px solid var(--steel-600);background:transparent;color:var(--fg-2);font:700 9px/1 var(--font-head);letter-spacing:.08em;text-transform:uppercase" style-hover="border-color:#A6CE39;color:#C6E06F">Open</button>
+              <button onClick="{{ jp.dup }}" style="flex:1;padding:5px 6px;cursor:pointer;border-radius:4px;border:1px solid var(--steel-600);background:transparent;color:var(--fg-2);font:700 9px/1 var(--font-head);letter-spacing:.08em;text-transform:uppercase" style-hover="border-color:#A6CE39;color:#C6E06F">Dup</button>
+              <button onClick="{{ jp.del }}" style="flex:none;padding:5px 8px;cursor:pointer;border-radius:4px;border:1px solid var(--steel-600);background:transparent;color:var(--fg-3);font:700 9px/1 var(--font-head);letter-spacing:.08em" style-hover="border-color:#D2402F;color:#D2402F">×</button>
+            </div>
+          </div>
+        </sc-for>
+        <div style="border-top:1px solid var(--border);padding-top:10px">
+          <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:4px">
+            <span style="font:700 10px/1 var(--font-head);text-transform:uppercase;letter-spacing:.18em;color:var(--hivis)">Stick nesting</span>
+            <span style="font:500 9px/1 var(--font-mono);color:var(--fg-3)">CHUCK GRIP <input value="{{ gripT }}" onChange="{{ onGrip }}" style="width:34px;box-sizing:border-box;background:var(--gunmetal-800);border:1px solid var(--border);border-radius:3px;color:var(--fg);font:500 9.5px/1 var(--font-mono);padding:3px 4px;text-align:center" style-focus="border-color:#A6CE39;outline:none">″</span>
+          </div>
+          <div style="font:400 10px/1.5 var(--font-body);color:var(--fg-3);margin-bottom:7px">How many sticks to pull for this job. Each stick keeps <span style="color:var(--fg-2)">{{ gripT }}″ the chuck holds and can't cut</span>, and every part in a stick costs an extra <span style="color:var(--fg-2)">⅛″ of kerf</span>.</div>
+          <sc-for list="{{ nests }}" as="ng" hint-placeholder-count="1">
+            <div style="border:1px solid var(--border);border-radius:var(--r-sm);padding:7px 8px;margin-bottom:6px">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:6px">
+                <span style="font:500 9.5px/1.3 var(--font-mono);color:var(--fg-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ ng.label }}</span>
+                <select data-sv="{{ ng.stick }}" value="{{ ng.stick }}" onChange="{{ ng.sStick }}" style="flex:none;background:var(--gunmetal-800);border:1px solid var(--border);border-radius:3px;color:var(--fg);font:500 9.5px/1 var(--font-mono);padding:3px 2px" style-focus="border-color:#A6CE39;outline:none"><option value="240">20′</option><option value="252">21′</option><option value="288">24′</option><option value="480">40′</option><option value="504">42′</option><option value="576">48′</option></select>
+                <button onClick="{{ ng.del }}" title="Erase these parts from the job" style="flex:none;padding:4px 7px;cursor:pointer;border-radius:3px;border:1px solid var(--border);background:transparent;color:var(--fg-3);font:700 11px/1 var(--font-mono)" style-hover="border-color:#D2402F;color:#D2402F">×</button>
+              </div>
+              <div style="margin-top:5px;height:4px;background:var(--gunmetal-800);border-radius:2px;overflow:hidden"><div style="{{ ng.barS }}"></div></div>
+              <div style="margin-top:4px;font:500 9px/1.4 var(--font-mono)"><span style="{{ ng.chipS }}">{{ ng.chip }}</span></div>
+            </div>
+          </sc-for>
+        </div>
+        <div style="border-top:1px solid var(--border);padding-top:10px">
+          <div style="font:700 10px/1 var(--font-head);text-transform:uppercase;letter-spacing:.18em;color:var(--hivis);margin-bottom:6px">Rollup</div>
+          <div style="display:flex;justify-content:space-between;font:500 10.5px/1.6 var(--font-mono)"><span style="color:var(--fg-3)">PIECES</span><span style="color:var(--fg-2)">{{ roPieces }}</span></div>
+          <div style="display:flex;justify-content:space-between;font:500 10.5px/1.6 var(--font-mono)"><span style="color:var(--fg-3)">STICKS TO PULL</span><span style="color:var(--fg-2)">{{ roSticks }}</span></div>
+          <div style="display:flex;justify-content:space-between;font:500 10.5px/1.6 var(--font-mono)"><span style="color:var(--fg-3)">WEIGHT</span><span style="color:var(--fg-2)">{{ roWt }}</span></div>
+          <div style="display:flex;gap:5px;align-items:end;margin-top:6px">
+            <div style="flex:1"><div style="font:500 8px/1 var(--font-mono);color:var(--fg-3);margin-bottom:2px">CARBON $/LB</div><input value="{{ rateCT }}" onChange="{{ onRateC }}" style="width:100%;box-sizing:border-box;background:var(--gunmetal-800);border:1px solid var(--border);border-radius:3px;color:var(--fg);font:500 10px/1 var(--font-mono);padding:4px 5px" style-focus="border-color:#A6CE39;outline:none"></div>
+            <div style="flex:1"><div style="font:500 8px/1 var(--font-mono);color:var(--fg-3);margin-bottom:2px">SS $/LB</div><input value="{{ rateST }}" onChange="{{ onRateS }}" style="width:100%;box-sizing:border-box;background:var(--gunmetal-800);border:1px solid var(--border);border-radius:3px;color:var(--fg);font:500 10px/1 var(--font-mono);padding:4px 5px" style-focus="border-color:#A6CE39;outline:none"></div>
+            <div style="flex:1"><div style="font:500 8px/1 var(--font-mono);color:var(--fg-3);margin-bottom:2px">ALUM $/LB</div><input value="{{ rateAT }}" onChange="{{ onRateA }}" style="width:100%;box-sizing:border-box;background:var(--gunmetal-800);border:1px solid var(--border);border-radius:3px;color:var(--fg);font:500 10px/1 var(--font-mono);padding:4px 5px" style-focus="border-color:#A6CE39;outline:none"></div>
+          </div>
+          <div style="display:flex;justify-content:space-between;font:700 12px/1.8 var(--font-mono);margin-top:4px"><span style="color:var(--fg-3)">MATERIAL ≈</span><span style="color:var(--hivis)">{{ roCost }}</span></div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <button onClick="{{ dlJobTicket }}" style="display:block;width:100%;text-align:left;background:var(--hivis);color:var(--on-accent);border:0;border-radius:var(--r-sm);padding:10px 12px;font:700 12px/1.1 var(--font-head);text-transform:uppercase;letter-spacing:.05em;cursor:pointer;box-shadow:var(--inset-top)" style-hover="background:#8DB22A" style-active="transform:translateY(1px)">Print job ticket <span style="float:right">›</span></button>
+          <button onClick="{{ dlJobCsv }}" style="display:block;width:100%;text-align:left;background:transparent;color:var(--fg);border:1px solid var(--steel-600);border-radius:var(--r-sm);padding:9px 12px;font:700 11px/1.1 var(--font-head);text-transform:uppercase;letter-spacing:.05em;cursor:pointer" style-hover="border-color:#A6CE39;background:rgba(166,206,57,.08)">Cut list — CSV</button>
+          <button onClick="{{ clearJob }}" style="display:block;width:100%;text-align:left;background:transparent;color:var(--fg-3);border:1px solid var(--border);border-radius:var(--r-sm);padding:8px 12px;font:700 10px/1.1 var(--font-head);text-transform:uppercase;letter-spacing:.05em;cursor:pointer" style-hover="border-color:#D2402F;color:#D2402F">Clear job</button>
+        </div>
+        <div style="border-top:1px solid var(--border);padding-top:10px">
+          <div style="font:700 10px/1 var(--font-head);text-transform:uppercase;letter-spacing:.18em;color:var(--hivis);margin-bottom:5px">Recall a part</div>
+          <div style="display:flex;gap:5px">
+            <input value="{{ recallT }}" onChange="{{ onRecall }}" placeholder="paste SPFPB1: code or scan QR" style="flex:1;box-sizing:border-box;background:var(--gunmetal-800);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 10px/1.2 var(--font-mono);padding:7px 7px" style-focus="border-color:#A6CE39;outline:none">
+            <button onClick="{{ doRecall }}" style="flex:none;padding:7px 10px;cursor:pointer;border-radius:4px;border:1px solid var(--steel-600);background:transparent;color:var(--fg-2);font:700 10px/1 var(--font-head);letter-spacing:.08em;text-transform:uppercase" style-hover="border-color:#A6CE39;color:#C6E06F">Load</button>
+          </div>
+          <div style="margin-top:4px;font:500 9px/1.4 var(--font-mono);color:var(--fg-3)">{{ recallMsg }}</div>
+        </div>
+        <div style="border-top:1px solid var(--border);padding-top:10px">
+          <div style="font:700 10px/1 var(--font-head);text-transform:uppercase;letter-spacing:.18em;color:var(--hivis);margin-bottom:5px">Export folder</div>
+          <sc-if value="{{ fsIdle }}" hint-placeholder-val="{{ false }}">
+            <button onClick="{{ linkFolder }}" style="display:block;width:100%;text-align:left;background:transparent;color:var(--fg);border:1px solid var(--steel-600);border-radius:var(--r-sm);padding:9px 12px;font:700 11px/1.1 var(--font-head);text-transform:uppercase;letter-spacing:.05em;cursor:pointer" style-hover="border-color:#A6CE39;background:rgba(166,206,57,.08)">Link a folder / drive</button>
+            <div style="margin-top:5px;font:400 9.5px/1.5 var(--font-body);color:var(--fg-3)">MEMO — point this at an external hard drive, USB stick, or an iCloud/Drive folder. Every DXF, STEP, OBJ, CSV, ticket and a rolling jobs backup auto-copies there, sorted into JOB_# folders.</div>
+          </sc-if>
+          <sc-if value="{{ fsOk }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;align-items:center;gap:6px">
+              <span style="flex:1;min-width:0;font:500 10px/1.4 var(--font-mono);color:var(--hivis);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">LINKED ▸ {{ fsName }} ✓</span>
+              <button onClick="{{ unlinkFolder }}" style="flex:none;padding:4px 7px;cursor:pointer;border-radius:3px;border:1px solid var(--border);background:transparent;color:var(--fg-3);font:700 11px/1 var(--font-mono)" style-hover="border-color:#D2402F;color:#D2402F">×</button>
+            </div>
+            <div style="margin-top:4px;font:400 9.5px/1.5 var(--font-body);color:var(--fg-3)">Every export copies to this folder under JOB_# · jobs backup refreshes itself.</div>
+          </sc-if>
+          <sc-if value="{{ fsAsk }}" hint-placeholder-val="{{ false }}">
+            <button onClick="{{ reconnectFolder }}" style="display:block;width:100%;text-align:left;background:transparent;color:var(--fg);border:1px solid var(--warn);border-radius:var(--r-sm);padding:9px 12px;font:700 11px/1.1 var(--font-head);text-transform:uppercase;letter-spacing:.05em;cursor:pointer" style-hover="border-color:#A6CE39">Reconnect "{{ fsName }}"</button>
+            <div style="margin-top:4px;font:400 9.5px/1.5 var(--font-body);color:var(--fg-3)">The browser asks once per session before it lets the app write to the folder.</div>
+          </sc-if>
+          <sc-if value="{{ fsNo }}" hint-placeholder-val="{{ false }}">
+            <div style="font:400 9.5px/1.5 var(--font-body);color:var(--fg-3)">MEMO — folder linking needs Chrome or Edge. On this browser, set the download folder to your drive instead: every export lands there.</div>
+          </sc-if>
+        </div>
+        <div style="border-top:1px solid var(--border);padding-top:10px">
+          <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:5px">
+            <span style="font:700 10px/1 var(--font-head);text-transform:uppercase;letter-spacing:.18em;color:var(--hivis)">Header program</span>
+            <span style="font:500 9px/1 var(--font-mono);color:var(--fg-3)">{{ hbCount }}</span>
+          </div>
+          <div style="font:400 9.5px/1.5 var(--font-body);color:var(--fg-3);margin-bottom:6px">MEMO — one DXF with every branch opening on a run of pipe, cut in the header stick (follows the DXF CUT ONLY / +REF setting on step 5). Set the header once, add branches at their joint angle · clock position · distance from the WP. Clock: 0° = top of header, + turns the same hand as the branch wrap (90° lands on the ¾-band line) · 180° is the seam — no openings there.</div>
+          <div style="display:flex;gap:5px;align-items:end;margin-bottom:6px">
+            <div style="flex:1"><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">HEADER</div><select data-sv="{{ hbNps }}" value="{{ hbNps }}" onChange="{{ sHbNps }}" style="width:100%;background:var(--gunmetal-800);border:1px solid var(--border);border-radius:3px;color:var(--fg);font:500 10px/1.2 var(--font-mono);padding:5px 3px" style-focus="border-color:#A6CE39;outline:none"><sc-for list="{{ hbNpsOpts }}" as="o" hint-placeholder-count="8"><option value="{{ o }}">{{ o }}″</option></sc-for></select></div>
+            <div style="flex:1"><div style="font:500 8.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:3px">SCHED</div><select data-sv="{{ hbSch }}" value="{{ hbSch }}" onChange="{{ sHbSch }}" style="width:100%;background:var(--gunmetal-800);border:1px solid var(--border);border-radius:3px;color:var(--fg);font:500 10px/1.2 var(--font-mono);padding:5px 3px" style-focus="border-color:#A6CE39;outline:none"><sc-for list="{{ hbSchedOpts }}" as="o" hint-placeholder-count="6"><option value="{{ o }}">{{ o }}</option></sc-for></select></div>
+          </div>
+          <div style="display:flex;gap:4px;margin-bottom:6px">
+            <button onClick="{{ hbSeatOn }}" style="{{ hbSeatOnS }}">SET-ON — HOLES = BRANCH ID</button>
+            <button onClick="{{ hbSeatThru }}" style="{{ hbSeatThruS }}">SET-THRU — OD</button>
+          </div>
+          <sc-for list="{{ hbList }}" as="hbr" hint-placeholder-count="1">
+            <div style="border:1px solid var(--border);border-radius:var(--r-sm);background:var(--gunmetal-800);padding:6px 7px;margin-bottom:5px">
+              <div style="display:flex;gap:4px;align-items:end">
+                <span style="flex:none;font:700 10px/2.4 var(--font-mono);color:var(--hivis)">B{{ hbr.id }}</span>
+                <div style="flex:1.1"><div style="font:500 7.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:2px">BRANCH</div><select data-sv="{{ hbr.nps }}" value="{{ hbr.nps }}" onChange="{{ hbr.sNps }}" style="width:100%;background:var(--gunmetal-900);border:1px solid var(--border);border-radius:3px;color:var(--fg);font:500 9.5px/1.2 var(--font-mono);padding:4px 2px" style-focus="border-color:#A6CE39;outline:none"><sc-for list="{{ hbr.npsOpts }}" as="o" hint-placeholder-count="6"><option value="{{ o }}">{{ o }}″</option></sc-for></select></div>
+                <div style="flex:1"><div style="font:500 7.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:2px">SCH</div><select data-sv="{{ hbr.sch }}" value="{{ hbr.sch }}" onChange="{{ hbr.sSch }}" style="width:100%;background:var(--gunmetal-900);border:1px solid var(--border);border-radius:3px;color:var(--fg);font:500 9.5px/1.2 var(--font-mono);padding:4px 2px" style-focus="border-color:#A6CE39;outline:none"><sc-for list="{{ hbr.schedOpts }}" as="o" hint-placeholder-count="6"><option value="{{ o }}">{{ o }}</option></sc-for></select></div>
+                <div style="flex:.9"><div style="font:500 7.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:2px">JOINT°</div><input value="{{ hbr.alphaT }}" onChange="{{ hbr.sAlpha }}" style="width:100%;box-sizing:border-box;background:var(--gunmetal-900);border:1px solid var(--border);border-radius:3px;color:var(--fg);font:500 9.5px/1.2 var(--font-mono);padding:4px 3px" style-focus="border-color:#A6CE39;outline:none"></div>
+                <div style="flex:.9"><div style="font:500 7.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:2px">CLOCK°</div><input value="{{ hbr.azT }}" onChange="{{ hbr.sAz }}" style="width:100%;box-sizing:border-box;background:var(--gunmetal-900);border:1px solid var(--border);border-radius:3px;color:var(--fg);font:500 9.5px/1.2 var(--font-mono);padding:4px 3px" style-focus="border-color:#A6CE39;outline:none"></div>
+                <div style="flex:1.2"><div style="font:500 7.5px/1 var(--font-mono);color:var(--fg-3);margin-bottom:2px">DIST FROM WP</div><input value="{{ hbr.distT }}" onChange="{{ hbr.sDist }}" placeholder="24 1/2" style="width:100%;box-sizing:border-box;background:var(--gunmetal-900);border:1px solid var(--border);border-radius:3px;color:var(--fg);font:500 9.5px/1.2 var(--font-mono);padding:4px 3px" style-focus="border-color:#A6CE39;outline:none"></div>
+                <button onClick="{{ hbr.del }}" style="flex:none;padding:4px 6px;cursor:pointer;border-radius:3px;border:1px solid var(--border);background:transparent;color:var(--fg-3);font:700 10px/1 var(--font-mono)" style-hover="border-color:#D2402F;color:#D2402F">×</button>
+              </div>
+            </div>
+          </sc-for>
+          <sc-if value="{{ hbPrevOn }}" hint-placeholder-val="{{ false }}">
+            <svg viewBox="{{ hbPrev.vb }}" preserveAspectRatio="xMidYMid meet" style="width:100%;height:66px;background:var(--gunmetal-800);border:1px solid var(--border);border-radius:3px;margin-bottom:3px">
+              <path d="{{ hbPrev.refP }}" stroke="#2A323B" stroke-width="{{ hbPrev.sw }}" fill="none"></path>
+              <path d="{{ hbPrev.wpP }}" stroke="#434C57" stroke-width="{{ hbPrev.sw }}" fill="none"></path>
+              <path d="{{ hbPrev.holesP }}" fill="rgba(166,206,57,.14)" stroke="#A6CE39" stroke-width="{{ hbPrev.sw }}"></path>
+              <sc-for list="{{ hbPrev.lbls }}" as="bl" hint-placeholder-count="1"><text x="{{ bl.x }}" y="{{ bl.y }}" style="{{ bl.s }}">{{ bl.t }}</text></sc-for>
+            </svg>
+            <div style="font:500 8.5px/1.4 var(--font-mono);color:var(--fg-3);margin-bottom:6px">HEADER UNROLLED — SEAM AT TOP+BOTTOM EDGE · TOP OF HEADER AT MID-BAND · | = WP</div>
+          </sc-if>
+          <sc-for list="{{ hbWarns }}" as="hw" hint-placeholder-count="0">
+            <div style="font:400 9.5px/1.5 var(--font-body);color:var(--warn);margin-bottom:3px">⚠ {{ hw }}</div>
+          </sc-for>
+          <div style="display:flex;gap:5px">
+            <button onClick="{{ hbAdd }}" style="flex:1;padding:7px 8px;cursor:pointer;border-radius:4px;border:1px dashed var(--steel-600);background:transparent;color:var(--fg-2);font:700 9.5px/1 var(--font-head);letter-spacing:.08em;text-transform:uppercase" style-hover="border-color:#A6CE39;color:#C6E06F">+ Branch</button>
+            <sc-if value="{{ hbHasList }}" hint-placeholder-val="{{ false }}">
+              <button onClick="{{ hbDxf }}" style="flex:1.4;padding:7px 8px;cursor:pointer;border-radius:4px;border:1px solid var(--steel-600);background:transparent;color:var(--fg);font:700 9.5px/1 var(--font-head);letter-spacing:.06em;text-transform:uppercase" style-hover="border-color:#A6CE39;background:rgba(166,206,57,.08)">Header holes — DXF</button>
+              <button onClick="{{ hbClear }}" style="flex:none;padding:7px 8px;cursor:pointer;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--fg-3);font:700 10px/1 var(--font-mono)" style-hover="border-color:#D2402F;color:#D2402F">×</button>
+            </sc-if>
+          </div>
+        </div>
+        <div style="border-top:1px solid var(--border);padding-top:10px">
+          <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:5px">
+            <span style="font:700 10px/1 var(--font-head);text-transform:uppercase;letter-spacing:.18em;color:var(--hivis)">Past jobs</span>
+            <span style="font:500 9px/1 var(--font-mono);color:var(--fg-3)">{{ archCount }}</span>
+          </div>
+          <div style="font:400 9.5px/1.5 var(--font-body);color:var(--fg-3);margin-bottom:6px">MEMO — + NEW JOB (top) files the finished job here for reprints &amp; DXFs later. Printed QR codes always reload their part on any machine.</div>
+          <sc-if value="{{ hasArch }}" hint-placeholder-val="{{ false }}">
+            <input value="{{ archQ }}" onChange="{{ onArchQ }}" placeholder="search job # · mark · size" style="width:100%;box-sizing:border-box;background:var(--gunmetal-800);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 10px/1.2 var(--font-mono);padding:7px 7px" style-focus="border-color:#A6CE39;outline:none">
+            <sc-for list="{{ archList }}" as="aj" hint-placeholder-count="1">
+              <div style="border:1px solid var(--border);border-radius:var(--r-sm);background:var(--gunmetal-800);padding:7px 8px;margin-top:6px">
+                <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px">
+                  <span style="font:700 11px/1 var(--font-mono);color:var(--fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ aj.job }}</span>
+                  <span style="flex:none;font:500 9px/1 var(--font-mono);color:var(--fg-3)">{{ aj.date }}</span>
+                </div>
+                <div style="margin-top:3px;font:500 9px/1.4 var(--font-mono);color:var(--fg-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ aj.sum }}</div>
+                <div style="margin-top:5px;display:flex;gap:4px">
+                  <button onClick="{{ aj.open }}" style="flex:1;padding:5px 6px;cursor:pointer;border-radius:4px;border:1px solid var(--steel-600);background:transparent;color:var(--fg-2);font:700 9px/1 var(--font-head);letter-spacing:.08em;text-transform:uppercase" style-hover="border-color:#A6CE39;color:#C6E06F">Open</button>
+                  <button onClick="{{ aj.del }}" style="flex:none;padding:5px 8px;cursor:pointer;border-radius:4px;border:1px solid var(--steel-600);background:transparent;color:var(--fg-3);font:700 9px/1 var(--font-head)" style-hover="border-color:#D2402F;color:#D2402F">×</button>
+                </div>
+              </div>
+            </sc-for>
+          </sc-if>
+          <div style="display:flex;gap:5px;margin-top:8px">
+            <button onClick="{{ dlBackup }}" style="flex:1;padding:7px 8px;cursor:pointer;border-radius:4px;border:1px solid var(--steel-600);background:transparent;color:var(--fg-2);font:700 9.5px/1 var(--font-head);letter-spacing:.08em;text-transform:uppercase" style-hover="border-color:#A6CE39;color:#C6E06F">Backup — file</button>
+            <button onClick="{{ doRestore }}" style="flex:1;padding:7px 8px;cursor:pointer;border-radius:4px;border:1px solid var(--steel-600);background:transparent;color:var(--fg-2);font:700 9.5px/1 var(--font-head);letter-spacing:.08em;text-transform:uppercase" style-hover="border-color:#A6CE39;color:#C6E06F">Restore</button>
+          </div>
+          <div style="margin-top:4px;font:500 9px/1.4 var(--font-mono);color:var(--hivis)">{{ archMsg }}</div>
+        </div>
+      </div>
+      </sc-if>
+  </div>
+  <div style="flex:none;height:28px;background:var(--gunmetal-900);border-top:1px solid var(--border);display:flex;align-items:center;gap:14px;padding:0 14px;font:500 9.5px/1 var(--font-mono);letter-spacing:.06em;color:var(--steel-400);white-space:nowrap;overflow:hidden">
+    <span style="{{ stReadyS }}">{{ stReady }}</span>
+    <span>UNITS INCH</span>
+    <span>SNAP 1/16</span>
+    <span style="color:var(--fg-2)">{{ stDims }}</span>
+    <span style="color:var(--fg-2)">{{ stWt }}</span>
+    <span style="flex:1"></span>
+    <span style="min-width:0;overflow:hidden;text-overflow:ellipsis">SMOKE RANCH 12KW · STEAMPUNK FABRICATION · HAZLEHURST MS · (601) 757-3377</span>
+  </div>
+</div>
+</script>
+<script>
+// Service worker — offline cache. Same update pattern as PipePro: after an
+// update takes control, reload only while the tab is hidden so the app never
+// gets yanked out from under whoever is using it.
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('./sw.js', { scope: './' }).then(function () {
+    var reloaded = false, pending = false;
+    function swReload() { if (reloaded) return; reloaded = true; location.reload(); }
+    navigator.serviceWorker.addEventListener('controllerchange', function () {
+      if (document.visibilityState === 'hidden') swReload(); else pending = true;
+    });
+    document.addEventListener('visibilitychange', function () {
+      if (pending && document.visibilityState === 'hidden') swReload();
+    });
+  }).catch(function () {});
+}
+</script>
+</body>
+</html>
