@@ -658,6 +658,9 @@ class Component extends DCLogic {
       } else push([xA(hw, 0), hw]);
       endEdge('A', ytA, ybA);
     }
+    // endEdge('A') closes back onto the first web point; drop that duplicate so the
+    // DXF has no zero-length segment and slabMesh indexes cleanly.
+    if (webPts.length > 3) { const f = webPts[0], l = webPts[webPts.length - 1]; if (Math.abs(f[0] - l[0]) < 1e-6 && Math.abs(f[1] - l[1]) < 1e-6) webPts.pop(); }
     let web = webPts;
     if (web.length > 2 && this.area(web) < 0) web = web.slice().reverse();
     const flgOut = (which) => {
@@ -1034,8 +1037,44 @@ class Component extends DCLogic {
     } catch (e) { this._starting = false; }
   }
   _queue() { if (!this._T) { this._start(); return; } clearTimeout(this._bt); this._bt = setTimeout(() => this._build3D(), 130); }
+  /** Flat bodies for beam/channel (web + 2 flanges) and angle (2 legs): outline,
+   *  hole loops, thickness and the local->3D map. Feeds the 3D stage and the
+   *  STEP/OBJ exports (via slabMesh) and the harness. */
+  plateDefs(c, SEG) {
+    const loopsFor = (face) => c.holes.filter(h => h.ok && h.face === face).map(h => h.slotL ? this.slotPts(h.x, h.c, h.slotL, h.dia, h.ax === 'x', SEG, true) : this.circPts(h.x, h.c, h.dia / 2, SEG, true));
+    let defs;
+    if (c.kind === 'plate') {
+      const { sec } = c;
+      defs = [
+        { name: 'WEB', out: c.web, hl: loopsFor('web'), th: sec.tw, map: (x, y, w) => [x, y, w - sec.tw / 2] },
+        { name: 'TOP_FLANGE', out: c.tfO, hl: loopsFor('tf'), th: sec.tf, map: (x, z, w) => [x, sec.d / 2 - w, z] },
+        { name: 'BOTTOM_FLANGE', out: c.bfO, hl: loopsFor('bf'), th: sec.tf, map: (x, z, w) => [x, -sec.d / 2 + sec.tf - w, z] }
+      ];
+    } else {
+      const t = c.sec.t;
+      defs = [
+        { name: 'VERT_LEG', out: c.vleg, hl: loopsFor('vleg'), th: t, map: (x, y, w) => [x, y, w] },
+        { name: 'HORIZ_LEG', out: c.hleg, hl: loopsFor('hleg'), th: t, map: (x, z, w) => [x, w, z] }
+      ];
+    }
+    return defs.filter(df => df.out && df.out.length >= 3);
+  }
+
+  /** Watertight slab: outline + hole loops extruded th along the map's w axis.
+   *  Loops are cleaned first — three's triangulateShape silently drops a repeated
+   *  closing point, and indexing the uncleaned loop shifted every hole vertex by
+   *  one (torn caps, open edges). The winding is flipped when the map mirrors
+   *  (e.g. an angle's horizontal leg), so every body has a positive volume. */
   slabMesh(outline, holeLoops, th, map) {
     const T = this._T;
+    const clean = (pts) => {
+      const o = [];
+      for (const p of pts) { const l = o[o.length - 1]; if (!l || Math.abs(l[0] - p[0]) > 1e-9 || Math.abs(l[1] - p[1]) > 1e-9) o.push(p); }
+      while (o.length > 3 && Math.abs(o[0][0] - o[o.length - 1][0]) < 1e-9 && Math.abs(o[0][1] - o[o.length - 1][1]) < 1e-9) o.pop();
+      return o;
+    };
+    outline = clean(outline);
+    holeLoops = holeLoops.map(clean);
     const cont = outline.map(p => new T.Vector2(p[0], p[1]));
     const hls = holeLoops.map(l => l.map(p => new T.Vector2(p[0], p[1])));
     let tris;
@@ -1057,6 +1096,12 @@ class Component extends DCLogic {
       }
       off += n;
     }
+    let vol = 0;
+    for (let i = 0; i < idx.length; i += 3) {
+      const a = idx[i] * 3, b = idx[i + 1] * 3, d = idx[i + 2] * 3;
+      vol += pos[a] * (pos[b + 1] * pos[d + 2] - pos[b + 2] * pos[d + 1]) - pos[a + 1] * (pos[b] * pos[d + 2] - pos[b + 2] * pos[d]) + pos[a + 2] * (pos[b] * pos[d + 1] - pos[b + 1] * pos[d]);
+    }
+    if (vol < 0) for (let i = 0; i < idx.length; i += 3) { const t = idx[i + 1]; idx[i + 1] = idx[i + 2]; idx[i + 2] = t; }
     return { pos, idx, loops, map, th };
   }
 
@@ -1338,25 +1383,8 @@ class Component extends DCLogic {
         }
       }
     } else {
-      const loopsFor = (face) => c.holes.filter(h => h.ok && h.face === face).map(h => h.slotL ? this.slotPts(h.x, h.c, h.slotL, h.dia, h.ax === 'x', SEG, true) : this.circPts(h.x, h.c, h.dia / 2, SEG, true));
-      let defs;
-      if (c.kind === 'plate') {
-        const { sec } = c;
-        defs = [
-          { name: 'WEB', out: c.web, hl: loopsFor('web'), th: sec.tw, map: (x, y, w) => [x, y, w - sec.tw / 2] },
-          { name: 'TOP_FLANGE', out: c.tfO, hl: loopsFor('tf'), th: sec.tf, map: (x, z, w) => [x, sec.d / 2 - w, z] },
-          { name: 'BOTTOM_FLANGE', out: c.bfO, hl: loopsFor('bf'), th: sec.tf, map: (x, z, w) => [x, -sec.d / 2 + sec.tf - w, z] }
-        ];
-      } else {
-        const t = c.sec.t;
-        defs = [
-          { name: 'VERT_LEG', out: c.vleg, hl: loopsFor('vleg'), th: t, map: (x, y, w) => [x, y, w] },
-          { name: 'HORIZ_LEG', out: c.hleg, hl: loopsFor('hleg'), th: t, map: (x, z, w) => [x, w, z] }
-        ];
-      }
       const plates = [];
-      for (const df of defs) {
-        if (!df.out || df.out.length < 3) continue;
+      for (const df of this.plateDefs(c, SEG)) {
         const m = this.slabMesh(df.out, df.hl, df.th, df.map);
         if (!m) continue;
         const geo = new T.BufferGeometry();
@@ -1471,7 +1499,7 @@ class Component extends DCLogic {
     return { id: Date.now() + Math.random(), job: st.job || '', savedAt: Date.now(), parts: JSON.parse(JSON.stringify(st.parts)), gripT: st.gripT, stickSel: st.stickSel, hdrB: JSON.parse(JSON.stringify(st.hdrB || { nps: '10', sch: '40', seat: 'on', hid: 1, list: [] })) };
   }
 
-  static CFG_KEYS = ['family', 'pnps', 'psch', 'todT', 'twallT', 'hsize', 'hwallT', 'bser', 'bsize', 'cser', 'csize', 'asize', 'athkT', 'cdT', 'cbT', 'ctfT', 'ctwT', 'cwT', 'lenT', 'mat', 'mark', 'heat', 'qty', 'wantHoles', 'ends', 'groups', 'gid'];
+  static CFG_KEYS = ['family', 'pnps', 'psch', 'todT', 'twallT', 'hsize', 'hwallT', 'bser', 'bsize', 'cser', 'csize', 'asize', 'athkT', 'cdT', 'cbT', 'ctfT', 'ctwT', 'cwT', 'lenT', 'lenMode', 'mat', 'mark', 'heat', 'qty', 'wantHoles', 'ends', 'groups', 'gid'];
   snapshot() { const o = {}; for (const k of Component.CFG_KEYS) o[k] = this.state[k]; return JSON.parse(JSON.stringify(o)); }
   encodeCfg(cfg) { return 'SPFPB1:' + btoa(unescape(encodeURIComponent(JSON.stringify(cfg)))); }
   decodeCfg(s) {
@@ -1480,6 +1508,9 @@ class Component extends DCLogic {
       if (s.startsWith('SPFPB1:')) s = s.slice(7);
       const cfg = JSON.parse(decodeURIComponent(escape(atob(s))));
       if (!cfg.family) return null;
+      // Codes made before lenMode was saved are work-point lengths; set it
+      // explicitly so a recall never inherits the form's current mode.
+      if (cfg.lenMode !== 'oal') cfg.lenMode = 'wp';
       return cfg;
     } catch (e) { return null; }
   }
