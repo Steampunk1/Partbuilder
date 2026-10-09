@@ -1503,8 +1503,9 @@ class Component extends DCLogic {
   snapshot() { const o = {}; for (const k of Component.CFG_KEYS) o[k] = this.state[k]; return JSON.parse(JSON.stringify(o)); }
   /** Recall codes. SPFPB2 keeps only what differs from a fresh part, so the
    *  ticket QR stays small and scannable even with many hole groups (full
-   *  codes passed the QR limit at ~4 groups). SPFPB1 (full JSON) still decodes;
-   *  encodeCfgV1 writes it for files that must load in older app builds. */
+   *  codes passed the QR limit at ~4 groups) - used for QR codes and the
+   *  RECALL box. SPFPB1 (full JSON, encodeCfgV1) is what job records and
+   *  backups store: complete, and readable by every app build. */
   encodeCfgV1(cfg) { return 'SPFPB1:' + btoa(unescape(encodeURIComponent(JSON.stringify(cfg)))); }
   encodeCfg(cfg) {
     const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
@@ -1521,11 +1522,13 @@ class Component extends DCLogic {
   _decodeRaw(s) {
     try {
       s = String(s == null ? '' : s).trim();
-      let v2 = false;
+      let v2 = null;
       if (s.startsWith('SPFPB2:')) { s = s.slice(7); v2 = true; }
-      else if (s.startsWith('SPFPB1:')) s = s.slice(7);
+      else if (s.startsWith('SPFPB1:')) { s = s.slice(7); v2 = false; }
       const j = JSON.parse(decodeURIComponent(escape(atob(s))));
       if (!j || typeof j !== 'object') return null;
+      // No prefix (pasted without it): a full v1 code carries every config key.
+      if (v2 === null) v2 = !Component.CFG_KEYS.every(k => k === 'lenMode' || Object.prototype.hasOwnProperty.call(j, k));
       if (!v2) return j.family ? { cfg: j, hadLenMode: Object.prototype.hasOwnProperty.call(j, 'lenMode') } : null;
       const base = Object.assign(Component.freshPart(), { lenMode: 'wp' });
       const cfg = {};
@@ -1547,6 +1550,9 @@ class Component extends DCLogic {
   /** Job-list part -> form cfg. Codes saved before lenMode existed don't say
    *  whether the typed length was CL or long point; the part record kept its
    *  long point (pt.oal), so use the mode that reproduces it. */
+  /** QR code for a job-list part: compact SPFPB2 rebuilt from its stored code
+   *  (with the inferred lenMode), falling back to the stored code. */
+  ticketCode(pt) { const cfg = this.cfgFromPart(pt); return cfg ? this.encodeCfg(cfg) : pt.payload; }
   cfgFromPart(pt) {
     const r = this._decodeRaw(pt && pt.payload);
     if (!r) return null;
@@ -1559,7 +1565,8 @@ class Component extends DCLogic {
         try { const c = this.calc(); return c.invalid ? null : (c.OAL || c.L); } catch (e) { return null; } finally { this.state = saved; this._c = savedC; }
       };
       const tol = 1 / 64, wp = lpFor('wp'), oal = lpFor('oal');
-      cfg.lenMode = (wp != null && Math.abs(wp - pt.oal) <= tol) ? 'wp' : (oal != null && Math.abs(oal - pt.oal) <= tol) ? 'oal' : 'wp';
+      const dW = wp == null ? Infinity : Math.abs(wp - pt.oal), dO = oal == null ? Infinity : Math.abs(oal - pt.oal);
+      cfg.lenMode = (dO < dW && dO <= tol) ? 'oal' : 'wp';   // the closer match wins; a tie (square ends) is WP
     }
     if (cfg.lenMode !== 'oal') cfg.lenMode = 'wp';
     return cfg;
@@ -2075,7 +2082,7 @@ class Component extends DCLogic {
     const totWt = st.parts.reduce((s, x) => s + x.wt * x.qty, 0);
     const totCost = st.parts.reduce((s, x) => s + x.wt * x.qty * (rates[x.cat] || 0), 0);
     const totPieces = st.parts.reduce((s, x) => s + x.qty, 0);
-    const rows = st.parts.map(p => '<tr><td style="width:74px">' + this._qrImg(p.payload, 2) + '<div style="font-size:8.5px;color:#5C6670">' + p.code + '</div></td><td class="big">' + esc(p.mark) + '</td><td>' + p.qty + '</td><td>' + esc(p.desc) + '</td><td>' + p.lenT2 + '</td><td>' + this.fmtFtIn(p.oal) + '</td><td>' + p.wt.toFixed(0) + '</td><td>' + (p.wt * p.qty).toFixed(0) + '</td></tr>').join('');
+    const rows = st.parts.map(p => '<tr><td style="width:74px">' + this._qrImg(this.ticketCode(p), 2) + '<div style="font-size:8.5px;color:#5C6670">' + p.code + '</div></td><td class="big">' + esc(p.mark) + '</td><td>' + p.qty + '</td><td>' + esc(p.desc) + '</td><td>' + p.lenT2 + '</td><td>' + this.fmtFtIn(p.oal) + '</td><td>' + p.wt.toFixed(0) + '</td><td>' + (p.wt * p.qty).toFixed(0) + '</td></tr>').join('');
     const nrows = nests.map(n => '<tr><td>' + esc(n.label) + '</td><td>' + n.pieces + '</td><td>' + (n.stickIn / 12) + '′</td><td class="big">' + n.sticks + '</td><td>' + Math.round(n.util * 100) + '%</td><td>' + this.fmtFtIn(n.drop) + (n.tooLong ? ' <span style="color:#D2402F;font-weight:700">⚠ PART LONGER THAN STICK</span>' : '') + '</td><td>' + n.wt.toFixed(0) + '</td></tr>').join('');
     return '<!DOCTYPE html><html><head><meta charset="utf-8"><title>JOB TICKET ' + esc(st.job || '') + '</title><style>' + this._ticketCss() + '</style></head><body>' +
       this._ticketTop('Job Cut List', 'JOB <b>' + esc(st.job || '—') + '</b><br>' + new Date().toLocaleDateString() + '<br>TRUE SIZE — KERF STAYS IN CAM') +
@@ -2652,7 +2659,7 @@ class Component extends DCLogic {
       lenT2: this.fmtFtIn(c.L) + (c.LP > 0 && Math.abs(c.LP - c.L) > 1 / 64 ? ' \u00B7 LP ' + this.fmtFtIn(c.LP) : ''), oal: c.OAL || c.L, wt: c.wt, qty: st.qty, cat: this.matRec().cat,
       groupKey: this.famLabel() + '|' + c.sec.label + '|' + this.matRec().id,
       groupLabel: c.sec.label + ' \u00B7 ' + this.matRec().id,
-      payload: this.encodeCfg(cfg)
+      payload: this.encodeCfgV1(cfg)
     };
     const bump = /^(.*?)(\d+)$/.exec(st.mark || '');
     const nextMark = bump ? bump[1] + (parseInt(bump[2], 10) + 1) : st.mark;

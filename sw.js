@@ -2,7 +2,7 @@
 // Same strategy as PipePro's sw.js: precache every local file, then
 // stale-while-revalidate so loads are instant and updates arrive on the
 // next visit. BUMP the CACHE version on every deploy.
-const CACHE = 'partbuilder-v6';
+const CACHE = 'partbuilder-v7';
 
 const LOCAL = [
   './',
