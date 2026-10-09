@@ -617,7 +617,7 @@
         <div style="border-top:1px solid var(--border);padding-top:10px">
           <div style="font:700 10px/1 var(--font-head);text-transform:uppercase;letter-spacing:.18em;color:var(--hivis);margin-bottom:5px">Recall a part</div>
           <div style="display:flex;gap:5px">
-            <input value="{{ recallT }}" onChange="{{ onRecall }}" placeholder="paste SPFPB1: code or scan QR" style="flex:1;box-sizing:border-box;background:var(--gunmetal-800);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 10px/1.2 var(--font-mono);padding:7px 7px" style-focus="border-color:#A6CE39;outline:none">
+            <input value="{{ recallT }}" onChange="{{ onRecall }}" placeholder="paste part code (SPFPB…) or scan QR" style="flex:1;box-sizing:border-box;background:var(--gunmetal-800);border:1px solid var(--border);border-radius:var(--r-sm);color:var(--fg);font:500 10px/1.2 var(--font-mono);padding:7px 7px" style-focus="border-color:#A6CE39;outline:none">
             <button onClick="{{ doRecall }}" style="flex:none;padding:7px 10px;cursor:pointer;border-radius:4px;border:1px solid var(--steel-600);background:transparent;color:var(--fg-2);font:700 10px/1 var(--font-head);letter-spacing:.08em;text-transform:uppercase" style-hover="border-color:#A6CE39;color:#C6E06F">Load</button>
           </div>
           <div style="margin-top:4px;font:500 9px/1.4 var(--font-mono);color:var(--fg-3)">{{ recallMsg }}</div>

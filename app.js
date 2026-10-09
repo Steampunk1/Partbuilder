@@ -1501,18 +1501,68 @@ class Component extends DCLogic {
 
   static CFG_KEYS = ['family', 'pnps', 'psch', 'todT', 'twallT', 'hsize', 'hwallT', 'bser', 'bsize', 'cser', 'csize', 'asize', 'athkT', 'cdT', 'cbT', 'ctfT', 'ctwT', 'cwT', 'lenT', 'lenMode', 'mat', 'mark', 'heat', 'qty', 'wantHoles', 'ends', 'groups', 'gid'];
   snapshot() { const o = {}; for (const k of Component.CFG_KEYS) o[k] = this.state[k]; return JSON.parse(JSON.stringify(o)); }
-  encodeCfg(cfg) { return 'SPFPB1:' + btoa(unescape(encodeURIComponent(JSON.stringify(cfg)))); }
-  decodeCfg(s) {
+  /** Recall codes. SPFPB2 keeps only what differs from a fresh part, so the
+   *  ticket QR stays small and scannable even with many hole groups (full
+   *  codes passed the QR limit at ~4 groups). SPFPB1 (full JSON) still decodes;
+   *  encodeCfgV1 writes it for files that must load in older app builds. */
+  encodeCfgV1(cfg) { return 'SPFPB1:' + btoa(unescape(encodeURIComponent(JSON.stringify(cfg)))); }
+  encodeCfg(cfg) {
+    const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+    const base = Object.assign(Component.freshPart(), { lenMode: 'wp' });
+    const diff = (o, def) => { const r = {}; for (const k of Object.keys(o || {})) if (!same(o[k], def[k])) r[k] = o[k]; return r; };
+    const d = {};
+    for (const k of Component.CFG_KEYS) if (k !== 'ends' && k !== 'groups' && !same(cfg[k], base[k])) d[k] = cfg[k];
+    const fam = cfg.family || base.family;
+    d.ends = { A: diff(cfg.ends && cfg.ends.A, Component.defEnd()), B: diff(cfg.ends && cfg.ends.B, Component.defEnd()) };
+    d.groups = (cfg.groups || []).map(g => Object.assign({ id: g.id }, diff(g, Component.defGroup(g.id, fam))));
+    return 'SPFPB2:' + btoa(unescape(encodeURIComponent(JSON.stringify(d))));
+  }
+  /** Raw decode of either code version -> { cfg, hadLenMode } or null. */
+  _decodeRaw(s) {
     try {
-      s = s.trim();
-      if (s.startsWith('SPFPB1:')) s = s.slice(7);
-      const cfg = JSON.parse(decodeURIComponent(escape(atob(s))));
-      if (!cfg.family) return null;
-      // Codes made before lenMode was saved are work-point lengths; set it
-      // explicitly so a recall never inherits the form's current mode.
-      if (cfg.lenMode !== 'oal') cfg.lenMode = 'wp';
-      return cfg;
+      s = String(s == null ? '' : s).trim();
+      let v2 = false;
+      if (s.startsWith('SPFPB2:')) { s = s.slice(7); v2 = true; }
+      else if (s.startsWith('SPFPB1:')) s = s.slice(7);
+      const j = JSON.parse(decodeURIComponent(escape(atob(s))));
+      if (!j || typeof j !== 'object') return null;
+      if (!v2) return j.family ? { cfg: j, hadLenMode: Object.prototype.hasOwnProperty.call(j, 'lenMode') } : null;
+      const base = Object.assign(Component.freshPart(), { lenMode: 'wp' });
+      const cfg = {};
+      for (const k of Component.CFG_KEYS) if (k !== 'ends' && k !== 'groups') cfg[k] = Object.prototype.hasOwnProperty.call(j, k) ? j[k] : JSON.parse(JSON.stringify(base[k]));
+      const ends = j.ends || {};
+      cfg.ends = { A: Object.assign(Component.defEnd(), ends.A), B: Object.assign(Component.defEnd(), ends.B) };
+      cfg.groups = Array.isArray(j.groups) ? j.groups.map(g => Object.assign(Component.defGroup(g.id, cfg.family), g)) : base.groups;
+      return { cfg, hadLenMode: true };
     } catch (e) { return null; }
+  }
+  decodeCfg(s) {
+    const r = this._decodeRaw(s);
+    if (!r) return null;
+    // Codes made before lenMode was saved are work-point lengths; set it
+    // explicitly so a recall never inherits the form's current mode.
+    if (r.cfg.lenMode !== 'oal') r.cfg.lenMode = 'wp';
+    return r.cfg;
+  }
+  /** Job-list part -> form cfg. Codes saved before lenMode existed don't say
+   *  whether the typed length was CL or long point; the part record kept its
+   *  long point (pt.oal), so use the mode that reproduces it. */
+  cfgFromPart(pt) {
+    const r = this._decodeRaw(pt && pt.payload);
+    if (!r) return null;
+    const cfg = r.cfg;
+    if (!r.hadLenMode && pt.oal > 0) {
+      const lpFor = (mode) => {
+        const saved = this.state, savedC = this._c;
+        this.state = Object.assign({}, saved, cfg, { lenMode: mode });
+        this._c = null;
+        try { const c = this.calc(); return c.invalid ? null : (c.OAL || c.L); } catch (e) { return null; } finally { this.state = saved; this._c = savedC; }
+      };
+      const tol = 1 / 64, wp = lpFor('wp'), oal = lpFor('oal');
+      cfg.lenMode = (wp != null && Math.abs(wp - pt.oal) <= tol) ? 'wp' : (oal != null && Math.abs(oal - pt.oal) <= tol) ? 'oal' : 'wp';
+    }
+    if (cfg.lenMode !== 'oal') cfg.lenMode = 'wp';
+    return cfg;
   }
 
   nestGroups(partsArg) {
@@ -1563,7 +1613,7 @@ class Component extends DCLogic {
   }
   headerNote() {
     const st = this.state, c = this.calc();
-    return 'Steampunk Fabrication | ' + (st.job ? 'JOB ' + st.job + ' | ' : '') + 'MARK ' + (st.mark || '-') + ' | ' + c.sec.label + ' x ' + this.fmtFtIn(c.L) + ' | A: ' + this.endSpecText(c.A || {}, c.sec) + ' | B: ' + this.endSpecText(c.B || {}, c.sec) + ' | TRUE SIZE, KERF IN CAM';
+    return 'Steampunk Fabrication | ' + (st.job ? 'JOB ' + st.job + ' | ' : '') + 'MARK ' + (st.mark || '-') + ' | ' + c.sec.label + ' x ' + this.fmtFtIn(c.L) + (c.LP > 0 && Math.abs(c.LP - c.L) > 1 / 64 ? ' CL (LONG POINT ' + this.fmtFtIn(c.LP) + ')' : '') + ' | A: ' + this.endSpecText(c.A || {}, c.sec) + ' | B: ' + this.endSpecText(c.B || {}, c.sec) + ' | TRUE SIZE, KERF IN CAM';
   }
   _objText() {
     const e = this._export;
@@ -1690,11 +1740,11 @@ class Component extends DCLogic {
     w(0, 'SECTION'); w(2, 'ENTITIES');
     const poly = (pts, layer, closed) => {
       w(0, 'POLYLINE'); w(8, layer); w(66, 1); w(70, closed ? 1 : 0);
-      for (const p of pts) { w(0, 'VERTEX'); w(8, layer); w(10, p[0].toFixed(4)); w(20, p[1].toFixed(4)); w(30, 0); }
+      for (const p of pts) { w(0, 'VERTEX'); w(8, layer); w(10, p[0].toFixed(6)); w(20, p[1].toFixed(6)); w(30, 0); }
       w(0, 'SEQEND');
     };
-    const line = (x1, y1, x2, y2, layer) => { if (layer !== 'CUT' && !anno) return; w(0, 'LINE'); w(8, layer); w(10, x1.toFixed(4)); w(20, y1.toFixed(4)); w(11, x2.toFixed(4)); w(21, y2.toFixed(4)); };
-    const text = (x, y, h, s, layer) => { if (!anno) return; w(0, 'TEXT'); w(8, layer || 'MARK'); w(10, x.toFixed(4)); w(20, y.toFixed(4)); w(40, h); w(1, this.ascii(s)); };
+    const line = (x1, y1, x2, y2, layer) => { if (layer !== 'CUT' && !anno) return; w(0, 'LINE'); w(8, layer); w(10, x1.toFixed(6)); w(20, y1.toFixed(6)); w(11, x2.toFixed(6)); w(21, y2.toFixed(6)); };
+    const text = (x, y, h, s, layer) => { if (!anno) return; w(0, 'TEXT'); w(8, layer || 'MARK'); w(10, x.toFixed(6)); w(20, y.toFixed(6)); w(40, h); w(1, this.ascii(s)); };
     if (c.kind === 'round' || c.kind === 'box') {
       const { a, b, N, wrap, L } = c;
       const sh = c.stns ? 0 : N / 2;
@@ -1707,7 +1757,7 @@ class Component extends DCLogic {
       for (const h of c.holes) {
         if (!h.ok) continue;
         if (h.slotL) poly(this.slotPts(h.x, h.u, h.slotL, h.dia, h.ax === 'x', 40, false), 'CUT', true);
-        else { w(0, 'CIRCLE'); w(8, 'CUT'); w(10, h.x.toFixed(4)); w(20, h.u.toFixed(4)); w(40, (h.dia / 2).toFixed(4)); }
+        else { w(0, 'CIRCLE'); w(8, 'CUT'); w(10, h.x.toFixed(6)); w(20, h.u.toFixed(6)); w(40, (h.dia / 2).toFixed(6)); }
       }
       if (c.kind === 'round') { for (const [nm, f] of [['180DEG BOTTOM (SEAM)', 0], ['270DEG', .25], ['0DEG TOP', .5], ['90DEG', .75], ['180DEG BOTTOM', 1]]) { line(c.aMin - .5, wrap * f, c.bMax + .5, wrap * f, 'REF'); text(c.aMin - .4, wrap * f + .12, .2, nm, 'REF'); } }
       else { const fS = c.faceS; for (const [nm, sv] of [['BOTTOM CL (SEAM)', 0], ['LEFT', fS.L], ['TOP CL', fS.T], ['RIGHT', fS.R], ['BOTTOM CL', wrap]]) { line(c.aMin - .5, sv, c.bMax + .5, sv, 'REF'); text(c.aMin - .4, sv + .12, .2, nm, 'REF'); } }
@@ -1731,7 +1781,7 @@ class Component extends DCLogic {
         if (!h.ok) continue;
         const map = h.face === 'tf' ? mTf : h.face === 'bf' ? mBf : mWeb;
         if (h.slotL) poly(this.slotPts(h.x, h.c, h.slotL, h.dia, h.ax === 'x', 40, false).map(map), 'CUT', true);
-        else { const q = map([h.x, h.c]); w(0, 'CIRCLE'); w(8, 'CUT'); w(10, q[0].toFixed(4)); w(20, q[1].toFixed(4)); w(40, (h.dia / 2).toFixed(4)); }
+        else { const q = map([h.x, h.c]); w(0, 'CIRCLE'); w(8, 'CUT'); w(10, q[0].toFixed(6)); w(20, q[1].toFixed(6)); w(40, (h.dia / 2).toFixed(6)); }
       }
       for (const [o, hgt] of [[oBf, Wb], [oWeb, sec.d], [oTf, Wb]]) { line(0, o - .5, 0, o + hgt + .5, 'REF'); line(L, o - .5, L, o + hgt + .5, 'REF'); }
       line(-1, oWeb + sec.d / 2, L + 1, oWeb + sec.d / 2, 'REF');
@@ -1758,7 +1808,7 @@ class Component extends DCLogic {
       if (!h.ok) continue;
       const map = h.face === 'vleg' ? mV : mH;
       if (h.slotL) poly(this.slotPts(h.x, h.c, h.slotL, h.dia, h.ax === 'x', 40, false).map(map), 'CUT', true);
-      else { const q = map([h.x, h.c]); w(0, 'CIRCLE'); w(8, 'CUT'); w(10, q[0].toFixed(4)); w(20, q[1].toFixed(4)); w(40, (h.dia / 2).toFixed(4)); }
+      else { const q = map([h.x, h.c]); w(0, 'CIRCLE'); w(8, 'CUT'); w(10, q[0].toFixed(6)); w(20, q[1].toFixed(6)); w(40, (h.dia / 2).toFixed(6)); }
     }
     line(0, -.5, 0, oH + (sec.b - sec.t) + .5, 'REF'); line(L, -.5, L, oH + (sec.b - sec.t) + .5, 'REF');
     text(0, oV + sec.a + .4, .32, 'VERT LEG - ELEVATION (HEEL AT Y0)');
@@ -1827,11 +1877,11 @@ class Component extends DCLogic {
     w(0, 'SECTION'); w(2, 'ENTITIES');
     const poly = (pts, layer, closed) => {
       w(0, 'POLYLINE'); w(8, layer); w(66, 1); w(70, closed ? 1 : 0);
-      for (const p of pts) { w(0, 'VERTEX'); w(8, layer); w(10, p[0].toFixed(4)); w(20, p[1].toFixed(4)); w(30, 0); }
+      for (const p of pts) { w(0, 'VERTEX'); w(8, layer); w(10, p[0].toFixed(6)); w(20, p[1].toFixed(6)); w(30, 0); }
       w(0, 'SEQEND');
     };
-    const line = (x1, y1, x2, y2, layer) => { if (layer !== 'CUT' && !anno) return; w(0, 'LINE'); w(8, layer); w(10, x1.toFixed(4)); w(20, y1.toFixed(4)); w(11, x2.toFixed(4)); w(21, y2.toFixed(4)); };
-    const text = (x, y, h, s, layer) => { if (!anno) return; w(0, 'TEXT'); w(8, layer || 'MARK'); w(10, x.toFixed(4)); w(20, y.toFixed(4)); w(40, h); w(1, this.ascii(s)); };
+    const line = (x1, y1, x2, y2, layer) => { if (layer !== 'CUT' && !anno) return; w(0, 'LINE'); w(8, layer); w(10, x1.toFixed(6)); w(20, y1.toFixed(6)); w(11, x2.toFixed(6)); w(21, y2.toFixed(6)); };
+    const text = (x, y, h, s, layer) => { if (!anno) return; w(0, 'TEXT'); w(8, layer || 'MARK'); w(10, x.toFixed(6)); w(20, y.toFixed(6)); w(40, h); w(1, this.ascii(s)); };
     poly(hh.pts, 'CUT', true);
     line(hh.zMin - .75, 0, hh.zMax + .75, 0, 'REF');
     line(0, hh.uMin - .75, 0, hh.uMax + .75, 'REF');
@@ -1896,11 +1946,11 @@ class Component extends DCLogic {
     w(0, 'SECTION'); w(2, 'ENTITIES');
     const poly = (pts, layer) => {
       w(0, 'POLYLINE'); w(8, layer); w(66, 1); w(70, 1);
-      for (const p of pts) { w(0, 'VERTEX'); w(8, layer); w(10, p[0].toFixed(4)); w(20, p[1].toFixed(4)); w(30, 0); }
+      for (const p of pts) { w(0, 'VERTEX'); w(8, layer); w(10, p[0].toFixed(6)); w(20, p[1].toFixed(6)); w(30, 0); }
       w(0, 'SEQEND');
     };
-    const line = (x1, y1, x2, y2, layer) => { if (layer !== 'CUT' && !anno) return; w(0, 'LINE'); w(8, layer); w(10, x1.toFixed(4)); w(20, y1.toFixed(4)); w(11, x2.toFixed(4)); w(21, y2.toFixed(4)); };
-    const text = (x, y, h, s2, layer) => { if (!anno) return; w(0, 'TEXT'); w(8, layer || 'MARK'); w(10, x.toFixed(4)); w(20, y.toFixed(4)); w(40, h); w(1, this.ascii(s2)); };
+    const line = (x1, y1, x2, y2, layer) => { if (layer !== 'CUT' && !anno) return; w(0, 'LINE'); w(8, layer); w(10, x1.toFixed(6)); w(20, y1.toFixed(6)); w(11, x2.toFixed(6)); w(21, y2.toFixed(6)); };
+    const text = (x, y, h, s2, layer) => { if (!anno) return; w(0, 'TEXT'); w(8, layer || 'MARK'); w(10, x.toFixed(6)); w(20, y.toFixed(6)); w(40, h); w(1, this.ascii(s2)); };
     let x0 = 0, x1 = 0;
     for (const cv of hc.curves) { x0 = Math.min(x0, cv.x0); x1 = Math.max(x1, cv.x1); }
     x0 -= 6; x1 += 6;
@@ -1925,7 +1975,7 @@ class Component extends DCLogic {
       const qr = qrcode(0, 'L');
       qr.addData(payload); qr.make();
       return '<img src="' + qr.createDataURL(cells || 3, 2) + '" style="image-rendering:pixelated">';
-    } catch (e) { return ''; }
+    } catch (e) { return '<div style="font:700 8px/1.3 monospace;color:#B3261E;max-width:90px">CODE TOO LONG FOR QR \u2014 RELOAD FROM THE JOB FILE</div>'; }
   }
   _logoImg(h) { return this._logo ? '<img src="' + this._logo + '" style="height:' + (h || 40) + 'px;background:#000;padding:3px 8px;border-radius:3px">' : ''; }
 
@@ -2249,7 +2299,7 @@ class Component extends DCLogic {
 
     const jobParts = st.parts.map(pt => ({
       id: pt.id, mark: pt.mark, desc: pt.desc, len: pt.lenT2, qtyT: '\u00D7' + pt.qty, wt: Math.round(pt.wt * pt.qty) + ' LB', code: pt.code,
-      load: () => { const cfg = this.decodeCfg(pt.payload); if (cfg) this.setState(Object.assign({ step: 5 }, cfg)); },
+      load: () => { const cfg = this.cfgFromPart(pt); if (cfg) this.setState(Object.assign({ step: 5 }, cfg)); },
       dup: () => this.setState(s => ({ parts: s.parts.concat([Object.assign({}, pt, { id: Date.now() + Math.random(), code: this.newCode() })]) })),
       del: () => this.setState(s => ({ parts: s.parts.filter(x => x.id !== pt.id) }))
     }));
@@ -2445,7 +2495,7 @@ class Component extends DCLogic {
       doRecall: () => {
         const cfg = this.decodeCfg(st.recallT);
         if (cfg) this.setState(Object.assign({ step: 5, recallMsg: 'Loaded \u2713', recallT: '' }, cfg));
-        else this.setState({ recallMsg: 'Bad code \u2014 paste the full SPFPB1: string' });
+        else this.setState({ recallMsg: 'Bad code \u2014 paste the whole part code (starts SPFPB)' });
       },
       lenModeWp: () => this.setState({ lenMode: 'wp' }),
       lenModeOal: () => this.setState({ lenMode: 'oal' }),
@@ -2455,7 +2505,7 @@ class Component extends DCLogic {
       sameLast: () => {
         const last = this.state.parts[this.state.parts.length - 1];
         if (!last) return;
-        const cfg = this.decodeCfg(last.payload);
+        const cfg = this.cfgFromPart(last);
         if (cfg) this.setState(Object.assign({}, cfg, { mark: this.state.mark, step: 1 }));
       },
       hbNps: st.hdrB.nps, hbSch: st.hdrB.sch,
@@ -2599,7 +2649,7 @@ class Component extends DCLogic {
     const part = {
       id: Date.now() + Math.random(), code: this.newCode(), mark: st.mark || '-',
       desc: this.famLabel() + ' \u00B7 ' + c.sec.label + ' \u00B7 ' + this.matRec().label,
-      lenT2: this.fmtFtIn(c.L), oal: c.OAL || c.L, wt: c.wt, qty: st.qty, cat: this.matRec().cat,
+      lenT2: this.fmtFtIn(c.L) + (c.LP > 0 && Math.abs(c.LP - c.L) > 1 / 64 ? ' \u00B7 LP ' + this.fmtFtIn(c.LP) : ''), oal: c.OAL || c.L, wt: c.wt, qty: st.qty, cat: this.matRec().cat,
       groupKey: this.famLabel() + '|' + c.sec.label + '|' + this.matRec().id,
       groupLabel: c.sec.label + ' \u00B7 ' + this.matRec().id,
       payload: this.encodeCfg(cfg)
@@ -2611,8 +2661,10 @@ class Component extends DCLogic {
   _jobCsv() {
     const st = this.state;
     if (!st.parts.length) return null;
+    // ASCII only (same rule as DXF/CSV); inch marks inside quoted fields are doubled.
+    const q = (v) => '"' + this.ascii(String(v)).replace(/"/g, '""') + '"';
     let s = 'code,mark,qty,description,cut_len,oal_in,wt_ea_lb,wt_total_lb\n';
-    for (const p of st.parts) s += [p.code, p.mark, p.qty, '"' + p.desc + '"', '"' + p.lenT2 + '"', p.oal.toFixed(3), p.wt.toFixed(1), (p.wt * p.qty).toFixed(1)].join(',') + '\n';
+    for (const p of st.parts) s += [q(p.code), q(p.mark), p.qty, q(p.desc), q(p.lenT2), p.oal.toFixed(3), p.wt.toFixed(1), (p.wt * p.qty).toFixed(1)].join(',') + '\n';
     return s;
   }
   _openTicket(html, fallbackName) {
