@@ -7,7 +7,7 @@
 class Component extends DCLogic {
   state = Object.assign(Component.freshPart(), {
     job: '',
-    spin: true, ghost: true, jobOpen: true, help: false,
+    spin: true, ghost: true, jobOpen: false, help: false,
     parts: [], gripT: '6', stickSel: {}, rateCT: '0.85', rateST: '3.50', rateAT: '2.60',
     recallT: '', recallMsg: '',
     hovL: '', hovGx: 0, hovGy: 0,
@@ -62,7 +62,7 @@ class Component extends DCLogic {
     this._fsInit();
     try { const ar = localStorage.getItem('spf_pb_archive_v1'); if (ar) { const j = JSON.parse(ar); if (Array.isArray(j)) this.state.archive = j; } } catch (e) {}
     try { if (!localStorage.getItem('spf_pb_help_seen')) this.state.help = true; } catch (e) {}
-    fetch('assets/logo-chrome.jpg').then(r => r.blob()).then(b => { const fr = new FileReader(); fr.onload = () => { this._logo = fr.result; }; fr.readAsDataURL(b); }).catch(() => {});
+    fetch('assets/logo-black.png').then(r => r.blob()).then(b => { const fr = new FileReader(); fr.onload = () => { this._logo = fr.result; }; fr.readAsDataURL(b); }).catch(() => {});
   }
 
   // ---------- parsing / formatting ----------
@@ -1031,7 +1031,7 @@ class Component extends DCLogic {
       if (!stage) { this._starting = false; return; }
       const { THREE } = await stage.ready;
       this._T = THREE; this._stage = stage;
-      stage.style.setProperty('--stage-bg', '#101317');
+      stage.style.setProperty('--stage-bg', '#ECEEF1');
       stage.shadowRoot.querySelectorAll('.toolbar,.note').forEach(el => { el.style.display = 'none'; });
       this._build3D();
     } catch (e) { this._starting = false; }
@@ -1313,7 +1313,7 @@ class Component extends DCLogic {
     } else this._g = new T.Group();
     const g = this._g;
     g.name = 'part_' + this.fileBase();
-    const mat = new T.MeshStandardMaterial({ color: 0xA6AEB7, metalness: .35, roughness: .42, side: T.DoubleSide });
+    const mat = new T.MeshStandardMaterial({ color: 0x9AA3AD, metalness: .3, roughness: .5, side: T.DoubleSide });
     mat.name = 'carbon_steel';
     const glow = this.props.edgeGlow ?? true;
     const SEG = parseInt(this.props.holeSegs || '28', 10);
@@ -1403,7 +1403,7 @@ class Component extends DCLogic {
     if (edgeVerts.length) {
       const eg = new T.BufferGeometry();
       eg.setAttribute('position', new T.BufferAttribute(new Float32Array(edgeVerts), 3));
-      const lines = new T.LineSegments(eg, new T.LineBasicMaterial({ color: 0xA6CE39, transparent: true, opacity: .6 }));
+      const lines = new T.LineSegments(eg, new T.LineBasicMaterial({ color: 0x1D5FBF, transparent: true, opacity: .8 }));
       lines.name = 'cut_edges';
       g.add(lines);
     }
@@ -1984,7 +1984,7 @@ class Component extends DCLogic {
       return '<img src="' + qr.createDataURL(cells || 3, 2) + '" style="image-rendering:pixelated">';
     } catch (e) { return '<div style="font:700 8px/1.3 monospace;color:#B3261E;max-width:90px">CODE TOO LONG FOR QR \u2014 RELOAD FROM THE JOB FILE</div>'; }
   }
-  _logoImg(h) { return this._logo ? '<img src="' + this._logo + '" style="height:' + (h || 40) + 'px;background:#000;padding:3px 8px;border-radius:3px">' : ''; }
+  _logoImg(h) { return this._logo ? '<img src="' + this._logo + '" style="height:' + (h || 40) + 'px">' : ''; }
 
   /** Shared print stylesheet — the Steampunk Fab design system adapted for
    *  paper: white page, ink + steel + hi-vis (darkened for print contrast),
@@ -2012,15 +2012,15 @@ class Component extends DCLogic {
       '.top{display:flex;align-items:flex-end;justify-content:space-between;gap:14px;border-bottom:2px solid #0A0B0D;padding-bottom:12px}' +
       '.brand{display:flex;align-items:center;gap:14px}' +
       '.eyebrow{font:700 8.5px/1 Saira,Arial,sans-serif;letter-spacing:.26em;color:#5C6670;text-transform:uppercase}' +
-      'h1{font:800 28px/.95 "Saira Condensed","Arial Narrow",sans-serif;font-style:italic;text-transform:uppercase;letter-spacing:.01em;color:#0A0B0D;margin:4px 0 0}' +
+      'h1{font:800 28px/.95 "Saira Condensed","Arial Narrow",sans-serif;text-transform:uppercase;letter-spacing:.01em;color:#0A0B0D;margin:4px 0 0}' +
       '.meta{text-align:right;font:500 9px/1.8 "JetBrains Mono",monospace;color:#5C6670;letter-spacing:.05em;text-transform:uppercase}' +
-      '.rule{height:2px;background:#A6CE39;margin:0 0 18px}' +
-      'h2{font:800 13px/1 "Saira Condensed","Arial Narrow",sans-serif;font-style:italic;text-transform:uppercase;letter-spacing:.04em;color:#0A0B0D;margin:20px 0 4px;display:flex;align-items:baseline;gap:10px}' +
+      '.rule{height:0;background:none;margin:0 0 18px}' +
+      'h2{font:800 13px/1 "Saira Condensed","Arial Narrow",sans-serif;text-transform:uppercase;letter-spacing:.04em;color:#0A0B0D;margin:20px 0 4px;display:flex;align-items:baseline;gap:10px}' +
       'h2 .sub{font:500 8px/1.5 "JetBrains Mono",monospace;font-style:normal;letter-spacing:.05em;color:#7E8893}' +
       'table{border-collapse:collapse;width:100%;margin:2px 0 4px}' +
       'th{font:700 8.5px/1.3 Saira,Arial,sans-serif;letter-spacing:.15em;text-transform:uppercase;color:#5C6670;border-bottom:2px solid #0A0B0D;padding:6px 10px 5px 0;text-align:left}' +
       'td{font:500 11px/1.5 "JetBrains Mono",monospace;color:#14171B;border-bottom:1px solid #E4E8EB;padding:6px 10px 6px 0;text-align:left;vertical-align:top}' +
-      '.hv{color:#7A9A24;font-weight:700}' +
+      '.hv{color:#1F3A5F;font-weight:700}' +
       '.big{font-size:12.5px;font-weight:700}' +
       '.k{font:400 10px/1.55 Barlow,Arial,sans-serif;color:#5C6670}' +
       '.flags{border-left:3px solid #D2402F;padding:6px 0 6px 12px;margin:14px 0}' +
@@ -2033,8 +2033,8 @@ class Component extends DCLogic {
       '@media print{body{margin:10mm 12mm}}';
   }
   _ticketTop(title, rightHtml) {
-    return '<div class="top"><div class="brand">' + this._logoImg(38) +
-      '<div><div class="eyebrow">Steampunk Fabrication · Shop Tools · 12KW Fiber Laser</div><h1>' + title + '</h1></div></div>' +
+    return '<div class="top"><div class="brand">' + this._logoImg(48) +
+      '<div><div class="eyebrow">Steampunk Fabrication · Tube Laser</div><h1>' + title + '</h1></div></div>' +
       '<div class="meta">' + rightHtml + '</div></div><div class="rule"></div>';
   }
 
@@ -2128,10 +2128,10 @@ class Component extends DCLogic {
     const tgEnd = (id, k) => () => this.setState(s => ({ ends: Object.assign({}, s.ends, { [id]: Object.assign({}, s.ends[id], { [k]: !s.ends[id][k] }) }) }));
     const setG = (id, k) => (e) => this.setState(s => ({ groups: s.groups.map(g => g.id === id ? Object.assign({}, g, { [k]: e.target.value }) : g) }));
     const goto = (n) => () => this.setState({ step: n });
-    const pill = (sel) => ({ padding: '7px 12px', cursor: 'pointer', borderRadius: 4, border: '1px solid ' + (sel ? '#A6CE39' : '#434C57'), background: sel ? 'rgba(166,206,57,.15)' : 'transparent', color: sel ? '#C6E06F' : '#7E8893', font: '700 10.5px/1 Saira, sans-serif', letterSpacing: '.08em' });
-    const copeBtn = (on) => ({ padding: '6px 8px', cursor: 'pointer', borderRadius: 4, whiteSpace: 'nowrap', border: '1px solid ' + (on ? '#A6CE39' : '#434C57'), background: on ? 'rgba(166,206,57,.12)' : 'transparent', color: on ? '#C6E06F' : '#7E8893', font: '700 9.5px/1.2 Saira, sans-serif', letterSpacing: '.06em' });
-    const numS = (n) => { const done = st.step > n, act = st.step === n; return { flex: 'none', width: 22, height: 22, borderRadius: 11, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: done ? '#A6CE39' : 'transparent', border: '1px solid ' + (done || act ? '#A6CE39' : '#434C57'), color: done ? '#10130A' : act ? '#C6E06F' : '#7E8893', font: '700 11px/1 JetBrains Mono, monospace' }; };
-    const famBtn = (f) => ({ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, padding: '10px 4px 8px', cursor: 'pointer', borderRadius: 4, border: '1px solid ' + (st.family === f ? '#A6CE39' : '#323A43'), background: st.family === f ? 'rgba(166,206,57,.10)' : 'var(--gunmetal-800)', color: st.family === f ? '#C6E06F' : '#AEB6BD' });
+    const pill = (sel) => ({ padding: '7px 12px', cursor: 'pointer', borderRadius: 4, border: '1px solid ' + (sel ? '#1F3A5F' : '#C9CFD6'), background: sel ? 'rgba(31,58,95,.08)' : 'transparent', color: sel ? '#1F3A5F' : '#47515C', font: '700 12px/1 Barlow, sans-serif', letterSpacing: '.02em' });
+    const copeBtn = (on) => ({ padding: '6px 8px', cursor: 'pointer', borderRadius: 4, whiteSpace: 'nowrap', border: '1px solid ' + (on ? '#1F3A5F' : '#C9CFD6'), background: on ? 'rgba(31,58,95,.08)' : 'transparent', color: on ? '#1F3A5F' : '#47515C', font: '700 12px/1.2 Barlow, sans-serif', letterSpacing: '.02em' });
+    const numS = (n) => { const done = st.step > n, act = st.step === n; return { flex: 'none', width: 22, height: 22, borderRadius: 11, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: done ? '#1F3A5F' : 'transparent', border: '1px solid ' + (done || act ? '#1F3A5F' : '#C9CFD6'), color: done ? '#FFFFFF' : act ? '#1F3A5F' : '#47515C', font: '700 12px/1 JetBrains Mono, monospace' }; };
+    const famBtn = (f) => ({ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, padding: '10px 4px 8px', cursor: 'pointer', borderRadius: 4, border: '1px solid ' + (st.family === f ? '#1F3A5F' : '#D5DAE0'), background: st.family === f ? 'rgba(31,58,95,.08)' : '#FFFFFF', color: st.family === f ? '#1F3A5F' : '#47515C' });
     const kind = c.kind || this.famKind();
     const isRoundFam = kind === 'round';
     const npsOpts = D ? Object.keys(D.PIPE_OD) : [], schedOpts = D ? D.PIPE_SCHEDS : [];
@@ -2202,7 +2202,7 @@ class Component extends DCLogic {
       };
     });
 
-    const faceOptsFor = { pipe: [{ v: 'wall', l: 'THRU WALL' }], tube: [{ v: 'wall', l: 'THRU WALL' }], hss: [{ v: 'T', l: 'TOP FACE' }, { v: 'R', l: 'RIGHT FACE' }, { v: 'B', l: 'BOTTOM FACE' }, { v: 'L', l: 'LEFT FACE' }], beam: [{ v: 'web', l: 'WEB' }, { v: 'tf', l: 'TOP FLG' }, { v: 'bf', l: 'BOT FLG' }], chan: [{ v: 'web', l: 'WEB' }, { v: 'tf', l: 'TOP FLG' }, { v: 'bf', l: 'BOT FLG' }], angl: [{ v: 'vleg', l: 'VERT LEG' }, { v: 'hleg', l: 'HORIZ LEG' }] }[st.family];
+    const faceOptsFor = { pipe: [{ v: 'wall', l: 'Through wall' }], tube: [{ v: 'wall', l: 'Through wall' }], hss: [{ v: 'T', l: 'Top face' }, { v: 'R', l: 'Right face' }, { v: 'B', l: 'Bottom face' }, { v: 'L', l: 'Left face' }], beam: [{ v: 'web', l: 'Web' }, { v: 'tf', l: 'Top flange' }, { v: 'bf', l: 'Bottom flange' }], chan: [{ v: 'web', l: 'Web' }, { v: 'tf', l: 'Top flange' }, { v: 'bf', l: 'Bottom flange' }], angl: [{ v: 'vleg', l: 'Vertical leg' }, { v: 'hleg', l: 'Horizontal leg' }] }[st.family];
     const isBoltMat = st.family === 'beam' || st.family === 'chan' || st.family === 'angl';
     const patchG = (id2, patch) => () => this.setState(s => ({ groups: s.groups.map(x => x.id === id2 ? Object.assign({}, x, patch) : x) }));
     const groups = st.groups.map(g => {
@@ -2217,7 +2217,7 @@ class Component extends DCLogic {
         isBoltMat, isRoundMat: isRoundFam, isHssMat: st.family === 'hss',
         isOlet: isRoundFam && g.type === 'olet',
         showDia: g.type === 'cust' || (st.family === 'hss' && (g.type === 'cust' || g.type === 'slot')),
-        diaLbl: st.family === 'hss' && g.type === 'slot' ? 'SLOT WIDTH' : 'HOLE Ø',
+        diaLbl: st.family === 'hss' && g.type === 'slot' ? 'Slot width' : 'Hole Ø',
         isHssSlot: st.family === 'hss' && g.type === 'slot',
         diaEcho: 'HOLE Ø ' + this.fr16(dia) + '″ (' + dia.toFixed(3) + '″) · SQUARE CUT — BEVEL IN CAM / GRIND AT FIT-UP',
         x0T: g.x0T, pT: g.pT, nT: g.nT, azT: g.azT, aznT: g.aznT, azpT: g.azpT, offT: g.offT,
@@ -2232,8 +2232,8 @@ class Component extends DCLogic {
         faceOpts: faceOptsFor,
         isRound: isRoundFam, isBoxFace: st.family === 'hss', isWeb: (st.family === 'beam' || st.family === 'chan') && g.face === 'web', isFlg: (st.family === 'beam' || st.family === 'chan') && g.face !== 'web', isLeg: st.family === 'angl',
         isSlot: g.type === 'ssl' || g.type === 'lsl' || g.type === 'slot', isCust: g.type === 'cust',
-        gaugeLabel: c.sec.chan ? 'ONE LINE — GAUGE FROM BACK' : 'TWO LINES, CENTERED (GAUGE)',
-        gLbl: st.family === 'angl' ? 'GAUGE FROM HEEL' : g.amode === 'gauge' ? (c.sec.chan ? 'GAUGE FROM BACK' : 'GAUGE — LINE TO LINE') : 'OFFSET FROM CENTER',
+        gaugeLabel: c.sec.chan ? 'One line, gauge from back' : 'Two lines, centered',
+        gLbl: st.family === 'angl' ? 'Gauge from heel' : g.amode === 'gauge' ? (c.sec.chan ? 'From back' : 'Gauge') : 'Offset',
         chip: '\u2192 ' + nOKg + (nAll !== nOKg ? '/' + nAll : '') + ' \u00D7 \u00D8' + this.fr16(dia),
         sFace: setG(g.id, 'face'), sBolt: setG(g.id, 'bolt'), sType: setG(g.id, 'type'), sRef: setG(g.id, 'refEnd'), sAx: setG(g.id, 'ax'),
         sX0: setG(g.id, 'x0T'), sP: setG(g.id, 'pT'), sN: setG(g.id, 'nT'),
@@ -2242,7 +2242,7 @@ class Component extends DCLogic {
         hasFaces: faceOptsFor.length > 1,
         clocks: !isRoundFam ? [] : (() => {
           const azv = ((parseFloat(g.azT) || 0) % 360 + 360) % 360, aznV = Math.round(parseFloat(g.aznT) || 1), azpV = parseFloat(g.azpT) || 0;
-          const bs = (on) => 'flex:none;padding:6px 8px;cursor:pointer;border-radius:4px;font:700 9.5px/1 var(--font-mono);' + (on ? 'border:1px solid var(--hivis);background:rgba(166,206,57,.14);color:var(--hivis)' : 'border:1px solid var(--steel-600);background:transparent;color:var(--fg-2)');
+          const bs = (on) => 'flex:none;padding:7px 10px;cursor:pointer;border-radius:999px;font:600 12px/1 var(--font-mono);' + (on ? 'border:1px solid var(--hivis);background:rgba(31,58,95,.08);color:var(--hivis)' : 'border:1px solid var(--steel-600);background:transparent;color:var(--fg-2)');
           const one = (l, d2, tip) => ({ l, tip, s: bs(aznV === 1 && Math.abs(azv - d2) < .01), go: patchG(g.id, { azT: String(d2), aznT: '1' }) });
           return [one('12:00 TOP', 0, 'Straight up'), one('3:00', 90, 'Right side, looking in from end A'), one('9:00', 270, 'Left side, looking in from end A'), one('5:00', 150, 'Low — just off the 6:00 program seam. Roll at fit-up if it must be dead-bottom.'), one('7:00', 210, 'Low — other side of the seam'),
             { l: '3+9 BOTH SIDES', tip: 'Same hole both sides — gauge / instrument ports', s: bs(aznV === 2 && Math.abs(azv - 90) < .01 && Math.abs(azpV - 180) < .01), go: patchG(g.id, { azT: '90', aznT: '2', azpT: '180' }) }];
@@ -2250,8 +2250,8 @@ class Component extends DCLogic {
         center: () => this.centerGroup(g.id, 'x'),
         centerY: () => this.centerGroup(g.id, 'y'),
         hasCtrY: (st.family === 'beam' || st.family === 'chan') && g.face === 'web' && !!(c.sec && c.sec.d),
-        cenS: (() => { const on = this.groupCenteredAx(g, c).x; return (on ? 'border:1px solid var(--hivis);background:rgba(166,206,57,.14);color:var(--hivis);' : 'border:1px solid var(--steel-600);background:transparent;color:var(--fg-2);') + 'flex:none;padding:6px 8px;cursor:pointer;border-radius:4px;font:700 8.5px/1 var(--font-head);letter-spacing:.06em;text-transform:uppercase'; })(),
-        cenSY: (() => { const on = this.groupCenteredAx(g, c).y; return (on ? 'border:1px solid var(--hivis);background:rgba(166,206,57,.14);color:var(--hivis);' : 'border:1px solid var(--steel-600);background:transparent;color:var(--fg-2);') + 'flex:none;padding:6px 8px;cursor:pointer;border-radius:4px;font:700 8.5px/1 var(--font-head);letter-spacing:.06em;text-transform:uppercase'; })(),
+        cenS: (() => { const on = this.groupCenteredAx(g, c).x; return (on ? 'border:1px solid var(--hivis);background:rgba(31,58,95,.08);color:var(--hivis);' : 'border:1px solid var(--steel-600);background:transparent;color:var(--fg-2);') + 'flex:none;padding:7px 10px;cursor:pointer;border-radius:6px;font:600 12px/1 var(--font-body)'; })(),
+        cenSY: (() => { const on = this.groupCenteredAx(g, c).y; return (on ? 'border:1px solid var(--hivis);background:rgba(31,58,95,.08);color:var(--hivis);' : 'border:1px solid var(--steel-600);background:transparent;color:var(--fg-2);') + 'flex:none;padding:7px 10px;cursor:pointer;border-radius:6px;font:600 12px/1 var(--font-body)'; })(),
         stdG: (() => { const v = this.stdGauge(g); return v != null ? this.fr16(v) : ''; })(),
         hasStdG: this.stdGauge(g) != null && (st.family === 'angl' || ((st.family === 'beam' || st.family === 'chan') && g.face !== 'web' && g.amode === 'gauge')),
         stdTip: st.family === 'angl' ? 'AISC standard gauge from the heel for this leg size' : c.sec.chan ? 'Workable line — half the flange from the back, snapped to 1/4″. Verify vs your detail.' : 'AISC workable flange gauge for this beam. Verify vs your detail.',
@@ -2314,18 +2314,18 @@ class Component extends DCLogic {
     return {
       stepN: st.step,
       stepName: ['THE STOCK', 'END A \u00B7 LEFT', 'END B \u00B7 RIGHT', 'HOLES', 'REVIEW & CUT'][st.step - 1] || '',
-      progS: { height: 3, width: (st.step / 5 * 100) + '%', background: '#A6CE39', borderRadius: 2, transition: 'width .18s cubic-bezier(.2,.7,.3,1)' },
+      progS: { height: 3, width: (st.step / 5 * 100) + '%', background: '#1F3A5F', borderRadius: 2, transition: 'width .18s cubic-bezier(.2,.7,.3,1)' },
       chip: (st.mark ? st.mark + ' \u00B7 ' : '') + c.sec.label + ' \u00D7 ' + (Lok ? this.fmtFtIn(c.L) : '?'),
       topChip: this.famLabel() + ' \u00B7 ' + c.sec.label + ' \u00B7 ' + this.matRec().label + ' \u00B7 ' + (Lok ? this.fmtFtIn(c.L) : '?'),
       tgJob: () => this.setState(s => ({ jobOpen: !s.jobOpen })),
       jobCount: String(totPieces),
-      jobBtnS: { flex: 'none', cursor: 'pointer', borderRadius: 4, border: '1px solid ' + (st.jobOpen ? '#A6CE39' : '#434C57'), background: st.jobOpen ? 'rgba(166,206,57,.12)' : 'transparent', color: st.jobOpen ? '#C6E06F' : '#AEB6BD', font: '700 11px/1 Saira, sans-serif', letterSpacing: '.08em', padding: '9px 12px' },
+      jobBtnS: { flex: 'none', cursor: 'pointer', borderRadius: 4, border: '1px solid ' + (st.jobOpen ? '#1F3A5F' : '#C9CFD6'), background: st.jobOpen ? 'rgba(31,58,95,.08)' : 'transparent', color: st.jobOpen ? '#1F3A5F' : '#47515C', font: '700 12px/1 Barlow, sans-serif', letterSpacing: '.02em', padding: '9px 12px' },
       goto1: goto(1), goto2: goto(2), goto3b: goto(3), goto4: goto(4), goto5: goto(5),
       car1: st.step === 1 ? '\u25BE' : '\u25B8', car4: st.step === 4 ? '\u25BE' : '\u25B8', car5: st.step === 5 ? '\u25BE' : '\u25B8',
       helpOpen: st.help,
       tgHelp: () => { if (st.help) { try { localStorage.setItem('spf_pb_help_seen', '1'); } catch (e) {} } this.setState(s => ({ help: !s.help })); },
       closeHelp: () => { try { localStorage.setItem('spf_pb_help_seen', '1'); } catch (e) {} this.setState({ help: false }); },
-      helpBtnS: { flex: 'none', cursor: 'pointer', borderRadius: 4, border: '1px solid ' + (st.help ? '#A6CE39' : '#434C57'), background: st.help ? 'rgba(166,206,57,.12)' : 'transparent', color: st.help ? '#C6E06F' : '#AEB6BD', font: '700 11px/1 Saira, sans-serif', letterSpacing: '.08em', padding: '9px 12px' },
+      helpBtnS: { flex: 'none', cursor: 'pointer', borderRadius: 4, border: '1px solid ' + (st.help ? '#1F3A5F' : '#C9CFD6'), background: st.help ? 'rgba(31,58,95,.08)' : 'transparent', color: st.help ? '#1F3A5F' : '#47515C', font: '700 12px/1 Barlow, sans-serif', letterSpacing: '.02em', padding: '9px 12px' },
       showEndTags: !st.spin,
       n1T: st.step > 1 ? '\u2713' : '1', n1S: numS(1), n4T: st.step > 4 ? '\u2713' : '4', n4S: numS(4), n5T: '5', n5S: numS(5),
       open1: st.step === 1, open4: st.step === 4, open5: st.step === 5,
@@ -2355,12 +2355,13 @@ class Component extends DCLogic {
       quicks,
       lenT: st.lenT, onLen: setS('lenT'),
       lenEcho: Lok ? (st.lenMode === 'oal' ? 'CL ' + this.fmtFtIn(c.L) + ' \u00B7 LP ' + this.fmtFtIn(c.LP) : this.fmtFtIn(c.L) + '  (' + c.L.toFixed(3) + '\u2033)') : 'CAN\u2019T READ',
-      lenEchoStyle: { color: Lok ? '#C6E06F' : '#D2402F', font: '700 10.5px/1.5 JetBrains Mono, monospace' },
+      lenEchoStyle: { color: Lok ? '#1F3A5F' : '#B3261E', font: '700 12px/1.5 JetBrains Mono, monospace' },
       lenHint: st.lenMode === 'oal' ? 'LONG POINT off the tape \u2014 CL solves itself' : (c.kind === 'round' && ((c.A && c.A.mode === 'saddle') || (c.B && c.B.mode === 'saddle')) ? 'saddle end WP = header centerline' : 'work point to work point'),
       mat: st.mat, onMat: setS('mat'), matOpts: D ? D.MATERIALS : [],
       mark: st.mark, onMark: setS('mark'),
       endSteps, groups,
       wantHoles: st.wantHoles,
+      noHoles: !st.wantHoles,
       holesYes: () => this.setState({ wantHoles: true }), holesNo: () => this.setState({ wantHoles: false }),
       holesYesS: pill(st.wantHoles), holesNoS: pill(!st.wantHoles),
       addGroup: () => this.setState(s => ({ gid: s.gid + 1, groups: s.groups.concat([Component.defGroup(s.gid, s.family)]) })),
@@ -2422,7 +2423,7 @@ class Component extends DCLogic {
           { l: '1 @ each end', tip: 'Single hole on the gauge line 1 1/2″ off each end.', go: addR([{ face: 'vleg', bolt: '3/4', type: 'std', refEnd: 'A', x0T: '1 1/2', nT: '1', xsT: '', gT: ga }, { face: 'vleg', bolt: '3/4', type: 'std', refEnd: 'B', x0T: '1 1/2', nT: '1', xsT: '', gT: ga }]) }];
       })(),
       hasIssues: c.warns.length > 0,
-      issues: c.warns.map(w => ({ t: w.t, dot: { color: w.lvl === 'err' ? '#D2402F' : '#E8631A', font: '700 10px/1 monospace' } })),
+      issues: c.warns.map(w => ({ t: w.t, dot: { color: w.lvl === 'err' ? '#B3261E' : '#B45309', font: '700 12px/1 monospace' } })),
       invalid: c.invalid,
       job: st.job, heat: st.heat, qty: st.qty, onJob: setS('job'), onHeat: setS('heat'),
       onQty: (e) => this.setState({ qty: Math.max(1, Math.round(+e.target.value || 1)) }),
@@ -2448,8 +2449,8 @@ class Component extends DCLogic {
       dxfSub: (st.dxfRef ? 'CUT + REF + LABELS \u2014 for checking in CAD' : 'CUT GEOMETRY ONLY \u2014 safe for CAM that cuts every line') + (c.kind === 'round' || c.kind === 'box' ? ' \u00B7 seam along the bottom' : ' \u00B7 face bands'),
       dxfRefOn: () => this.setState({ dxfRef: true }),
       dxfRefOff: () => this.setState({ dxfRef: false }),
-      dxfRefOnS: { padding: '4px 7px', cursor: 'pointer', borderRadius: 3, border: '1px solid ' + (st.dxfRef ? '#A6CE39' : '#434C57'), background: st.dxfRef ? 'rgba(166,206,57,.15)' : 'transparent', color: st.dxfRef ? '#C6E06F' : '#7E8893', font: '700 8.5px/1 Saira, sans-serif', letterSpacing: '.06em' },
-      dxfRefOffS: { padding: '4px 7px', cursor: 'pointer', borderRadius: 3, border: '1px solid ' + (!st.dxfRef ? '#A6CE39' : '#434C57'), background: !st.dxfRef ? 'rgba(166,206,57,.15)' : 'transparent', color: !st.dxfRef ? '#C6E06F' : '#7E8893', font: '700 8.5px/1 Saira, sans-serif', letterSpacing: '.06em' },
+      dxfRefOnS: { padding: '4px 7px', cursor: 'pointer', borderRadius: 3, border: '1px solid ' + (st.dxfRef ? '#1F3A5F' : '#C9CFD6'), background: st.dxfRef ? 'rgba(31,58,95,.08)' : 'transparent', color: st.dxfRef ? '#1F3A5F' : '#47515C', font: '700 12px/1 Barlow, sans-serif', letterSpacing: '.02em' },
+      dxfRefOffS: { padding: '4px 7px', cursor: 'pointer', borderRadius: 3, border: '1px solid ' + (!st.dxfRef ? '#1F3A5F' : '#C9CFD6'), background: !st.dxfRef ? 'rgba(31,58,95,.08)' : 'transparent', color: !st.dxfRef ? '#1F3A5F' : '#47515C', font: '700 12px/1 Barlow, sans-serif', letterSpacing: '.02em' },
       dlStep: () => { const t = this._stepText(); if (t) this._download(t, this.fileBase() + '.step', 'application/step'); },
       dlObj: () => { const t = this._objText(); if (t) this._download(t, this.fileBase() + '.obj', 'model/obj'); },
       dlDxf: () => { const t = this._dxfText(); if (t) this._download(t, this.fileBase() + '.dxf', 'application/dxf'); },
@@ -2461,33 +2462,33 @@ class Component extends DCLogic {
       fileBase: this.fileBase(), stageRef: this.stageRef,
       hasSaddle: c.kind === 'round' && ((c.A && c.A.mode === 'saddle') || (c.B && c.B.mode === 'saddle')),
       onGhost: () => this.setState(s => ({ ghost: !s.ghost })),
-      ghostLbl: 'HEADER GHOST: ' + (st.ghost ? 'ON' : 'OFF'),
+      ghostLbl: (st.ghost ? 'Hide header' : 'Show header'),
       ghostBtnS: this.hudBtn(st.ghost),
       onFit: () => { this._framed = false; this._bk = null; this._build3D(); },
       fitBtnS: this.hudBtn(false),
       onSpin: () => this.setState(s => ({ spin: !s.spin })),
-      spinLbl: 'SPIN: ' + (st.spin ? 'ON' : 'OFF'),
+      spinLbl: (st.spin ? 'Stop spin' : 'Spin'),
       spinBtnS: this.hudBtn(st.spin),
-      bandTitle: c.kind === 'round' || c.kind === 'box' ? 'What the laser cuts — the tube unrolled flat' : 'What the laser cuts — each plate face, true scale',
-      bandLegend: st.hovL ? st.hovL : (c.kind === 'round' || c.kind === 'box' ? 'WRAP ' + (c.wrap ? c.wrap.toFixed(3) + '\u2033' : '\u2014') + ' \u00B7 SEAM = BOTTOM OF PART \u00B7 GRID 12\u2033' : 'GRID 12\u2033 \u00B7 \u2014 CUT \u00B7 - - WP') + ' \u00B7 CLICK = HOLE \u00B7 DRAG A HOLE = SLIDE \u00B7 CLICK A HOLE = REMOVE',
-      bandLegendS: { font: st.hovL ? '700 10px/1 JetBrains Mono, monospace' : '500 10px/1 JetBrains Mono, monospace', color: st.hovL ? '#C6E06F' : '#79828B', whiteSpace: 'nowrap' },
+      bandTitle: c.kind === 'round' || c.kind === 'box' ? 'Flat program — tube unrolled' : 'Flat program — each face',
+      bandLegend: st.hovL ? st.hovL : (c.kind === 'round' || c.kind === 'box' ? 'Wrap ' + (c.wrap ? c.wrap.toFixed(3) + '\u2033' : '\u2014') + ' \u00B7 seam at bottom of part \u00B7 grid 12\u2033' : 'Grid 12\u2033'),
+      bandLegendS: { font: st.hovL ? '700 12px/1 JetBrains Mono, monospace' : '500 12px/1 JetBrains Mono, monospace', color: st.hovL ? '#1F3A5F' : '#6B7480', whiteSpace: 'nowrap' },
       vb: p.vb, gridP: p.gridP, refP: p.refP, wpP: p.wpP, outAP: p.outAP, outBP: p.outBP, outCP: p.outCP, holesP: p.holesP,
       bandLbls: p.lbls, sw: p.sw, swThin: p.swThin, dash: p.dash,
       endASpec: c.invalid || !c.A ? '\u2014' : this.endSpecText(c.A, c.sec),
       endBSpec: c.invalid || !c.B ? '\u2014' : this.endSpecText(c.B, c.sec),
       holeChip: nOK ? Object.entries(byDia).map(([k, v]) => v + '\u00D7 ' + k).join('  ') : 'NO HOLES',
-      stReady: errN ? errN + ' ISSUE' + (errN > 1 ? 'S' : '') : 'READY',
-      stReadyS: { color: errN ? '#D2402F' : '#A6CE39', font: '700 9.5px/1 JetBrains Mono, monospace', letterSpacing: '.08em' },
+      stReady: errN ? errN + ' issue' + (errN > 1 ? 's' : '') : 'Ready to cut',
+      stReadyS: { color: errN ? '#B3261E' : '#1F3A5F', font: '700 12px/1 JetBrains Mono, monospace', letterSpacing: '.02em' },
       stDims: c.invalid ? '\u2014' : 'CL ' + this.fmtFtIn(c.L) + ' \u00B7 LP ' + this.fmtFtIn(c.LP) + ' \u00B7 SP ' + this.fmtFtIn(c.SP),
       stWt: c.invalid ? '' : Math.round(c.wt) + ' LB EA',
       jobOpen: st.jobOpen, jobEmpty: st.parts.length === 0, jobParts, nests: nests.map(n2 => ({
         key: n2.key, label: n2.label,
         chip: n2.sticks + ' STICK' + (n2.sticks > 1 ? 'S' : '') + ' \u00B7 ' + Math.round(n2.util * 100) + '% \u00B7 DROP ' + this.fmtFtIn(n2.drop) + (n2.tooLong ? ' \u00B7 PART > STICK!' : ''),
-        chipS: { font: '500 9px/1.4 JetBrains Mono, monospace', color: n2.tooLong ? '#D2402F' : '#7E8893' },
+        chipS: { font: '500 12px/1.4 JetBrains Mono, monospace', color: n2.tooLong ? '#B3261E' : '#47515C' },
         stick: String(st.stickSel[n2.key] || '288'),
         sStick: (e) => this.setState(s => ({ stickSel: Object.assign({}, s.stickSel, { [n2.key]: e.target.value }) })),
         del: () => { if (!confirm('Erase all ' + n2.pieces + ' pc of ' + n2.label + ' from this job?')) return; this.setState(s => ({ parts: s.parts.filter(p => p.groupKey !== n2.key) })); },
-        barS: { height: 4, width: Math.round(n2.util * 100) + '%', background: n2.tooLong ? '#D2402F' : '#A6CE39', borderRadius: 2 }
+        barS: { height: 4, width: Math.round(n2.util * 100) + '%', background: n2.tooLong ? '#B3261E' : '#1F3A5F', borderRadius: 2 }
       })),
       gripT: st.gripT, onGrip: setS('gripT'),
       rateCT: st.rateCT, rateST: st.rateST, rateAT: st.rateAT,
@@ -2506,8 +2507,8 @@ class Component extends DCLogic {
       },
       lenModeWp: () => this.setState({ lenMode: 'wp' }),
       lenModeOal: () => this.setState({ lenMode: 'oal' }),
-      lenWpS: { padding: '4px 7px', cursor: 'pointer', borderRadius: 3, border: '1px solid ' + (st.lenMode !== 'oal' ? '#A6CE39' : '#434C57'), background: st.lenMode !== 'oal' ? 'rgba(166,206,57,.15)' : 'transparent', color: st.lenMode !== 'oal' ? '#C6E06F' : '#7E8893', font: '700 8.5px/1 Saira, sans-serif', letterSpacing: '.06em' },
-      lenOalS: { padding: '4px 7px', cursor: 'pointer', borderRadius: 3, border: '1px solid ' + (st.lenMode === 'oal' ? '#A6CE39' : '#434C57'), background: st.lenMode === 'oal' ? 'rgba(166,206,57,.15)' : 'transparent', color: st.lenMode === 'oal' ? '#C6E06F' : '#7E8893', font: '700 8.5px/1 Saira, sans-serif', letterSpacing: '.06em' },
+      lenWpS: { padding: '4px 7px', cursor: 'pointer', borderRadius: 3, border: '1px solid ' + (st.lenMode !== 'oal' ? '#1F3A5F' : '#C9CFD6'), background: st.lenMode !== 'oal' ? 'rgba(31,58,95,.08)' : 'transparent', color: st.lenMode !== 'oal' ? '#1F3A5F' : '#47515C', font: '700 12px/1 Barlow, sans-serif', letterSpacing: '.02em' },
+      lenOalS: { padding: '4px 7px', cursor: 'pointer', borderRadius: 3, border: '1px solid ' + (st.lenMode === 'oal' ? '#1F3A5F' : '#C9CFD6'), background: st.lenMode === 'oal' ? 'rgba(31,58,95,.08)' : 'transparent', color: st.lenMode === 'oal' ? '#1F3A5F' : '#47515C', font: '700 12px/1 Barlow, sans-serif', letterSpacing: '.02em' },
       hasParts: st.parts.length > 0,
       sameLast: () => {
         const last = this.state.parts[this.state.parts.length - 1];
@@ -2523,7 +2524,7 @@ class Component extends DCLogic {
       hbSeatThru: () => this.setState(s2 => ({ hdrB: Object.assign({}, s2.hdrB, { seat: 'thru' }) })),
       hbSeatOnS: pill(st.hdrB.seat === 'on'), hbSeatThruS: pill(st.hdrB.seat !== 'on'),
       hbHasList: st.hdrB.list.length > 0,
-      hbCount: st.hdrB.list.length ? st.hdrB.list.length + ' BRANCH' + (st.hdrB.list.length > 1 ? 'ES' : '') : '',
+      hbCount: st.hdrB.list.length ? st.hdrB.list.length + ' branch' + (st.hdrB.list.length > 1 ? 'es' : '') : '',
       hbAdd: () => this.setState(s2 => ({ hdrB: Object.assign({}, s2.hdrB, { hid: s2.hdrB.hid + 1, list: s2.hdrB.list.concat([{ id: s2.hdrB.hid, nps: '2', sch: '40', alphaT: '90', azT: '0', distT: s2.hdrB.list.length ? '' : '12' }]) }) })),
       hbClear: () => { if (confirm('Clear all branches from the header program?')) this.setState(s2 => ({ hdrB: Object.assign({}, s2.hdrB, { list: [] }) })); },
       hbList: st.hdrB.list.map(b => {
@@ -2553,7 +2554,7 @@ class Component extends DCLogic {
           holesP, refP,
           wpP: 'M0 ' + (-fs * .8).toFixed(1) + 'V' + (hcv.W + fs * .8).toFixed(1),
           sw: span / 400,
-          lbls: hcv.curves.map(cv => ({ x: (cv.x0 + cv.x1) / 2 - fs * .6, y: -fs * .4, t: 'B' + cv.b.id, s: { font: '500 ' + fs.toFixed(2) + 'px JetBrains Mono, monospace', fill: '#A6CE39' } }))
+          lbls: hcv.curves.map(cv => ({ x: (cv.x0 + cv.x1) / 2 - fs * .6, y: -fs * .4, t: 'B' + cv.b.id, s: { font: '500 ' + fs.toFixed(2) + 'px JetBrains Mono, monospace', fill: '#1F3A5F' } }))
         };
       })(),
       hbDxf: () => {
@@ -2577,7 +2578,7 @@ class Component extends DCLogic {
           return Object.assign(Component.freshPart(), { archive, parts: [], job: '', stickSel: {}, jobOpen: true, recallT: '', recallMsg: '', archQ: '', hdrB: { nps: '10', sch: '40', seat: 'on', hid: 1, list: [] }, archMsg: s2.parts.length ? 'Filed ' + (s2.job || 'job') + ' to PAST JOBS \u2713' : 'Fresh job \u2713' });
         });
       },
-      archCount: st.archive.length ? st.archive.length + ' SAVED' : 'NONE YET',
+      archCount: st.archive.length ? st.archive.length + ' saved' : 'none yet',
       hasArch: st.archive.length > 0,
       archQ: st.archQ, onArchQ: setS('archQ'),
       archMsg: st.archMsg,
@@ -2647,7 +2648,7 @@ class Component extends DCLogic {
     };
   }
 
-  hudBtn(on) { return { cursor: 'pointer', borderRadius: 4, border: '1px solid ' + (on ? '#A6CE39' : '#434C57'), background: 'rgba(10,11,13,.72)', color: on ? '#C6E06F' : '#7E8893', font: '700 10.5px/1 JetBrains Mono, monospace', letterSpacing: '.08em', padding: '8px 10px' }; }
+  hudBtn(on) { return { cursor: 'pointer', borderRadius: 4, border: '1px solid ' + (on ? '#1F3A5F' : '#C9CFD6'), background: 'rgba(255,255,255,.92)', color: on ? '#1F3A5F' : '#47515C', font: '700 12px/1 JetBrains Mono, monospace', letterSpacing: '.02em', padding: '8px 10px' }; }
   newCode() { return 'SPF-' + Math.random().toString(36).slice(2, 6).toUpperCase(); }
   addToJob() {
     const c = this.calc(), st = this.state;
