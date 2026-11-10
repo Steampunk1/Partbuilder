@@ -7,13 +7,13 @@
 class Component extends DCLogic {
   state = Object.assign(Component.freshPart(), {
     job: '',
-    spin: true, ghost: true, jobOpen: false, help: false,
+    spin: false, ghost: true, jobOpen: false, help: false, solidBusy: '', editId: null, markStash: null, jobBusy: '',
     parts: [], gripT: '6', stickSel: {}, rateCT: '0.85', rateST: '3.50', rateAT: '2.60',
     recallT: '', recallMsg: '',
     hovL: '', hovGx: 0, hovGy: 0,
     archive: [], archQ: '', archMsg: '',
     fsName: '', fsPerm: '',
-    lenMode: 'wp', dxfRef: false,
+    lenMode: 'oal', dxfRef: false,
     hdrB: { nps: '10', sch: '40', seat: 'on', hid: 1, list: [] }
   });
   /** Factory defaults for the part form — what NEW JOB resets to. */
@@ -37,15 +37,23 @@ class Component extends DCLogic {
       wantBevel: false, bvT: '37.5', landT: '1/16', open: 'TOP', app: 'BOTH',
       wantCope: false, ct: true, tcT: '4', tdT: '1 1/2', trT: '1/2', cb: false, bcT: '4', bdT: '1 1/2', brT: '1/2', rat: 'NONE', rrT: '3/4' };
   }
+  /** A fresh group as the UI adds it. Beams and channels start as a simple
+   *  bolt pattern: centered on the web / on the standard flange gauge. */
+  static newGroup(id, fam) {
+    const g = Component.defGroup(id, fam);
+    if (fam === 'beam' || fam === 'chan') Object.assign(g, { both: true, autoY: true, autoG: true, x0T: '2', nT: '1', pT: '3', nyT: '2', pyT: '3' });
+    return g;
+  }
   static defGroup(id, fam) {
     const face = { pipe: 'wall', tube: 'wall', hss: 'T', beam: 'web', chan: 'web', angl: 'vleg' }[fam] || 'wall';
     // Hole meaning follows the material: round stock gets olet/branch openings,
     // HSS gets plain round/slot cutouts, only beam/channel/angle get bolt holes.
     const isRound = fam === 'pipe' || fam === 'tube';
-    return { id, face, bolt: '3/4', type: isRound ? 'olet' : fam === 'hss' ? 'cust' : 'std', ax: 'x', refEnd: 'A', x0T: '3', pT: '3', nT: '2', xsT: '',
+    return { id, face, bolt: '3/4', type: isRound ? 'cust' : fam === 'hss' ? 'cust' : 'std', ax: 'x', refEnd: 'A', x0T: isRound ? '6' : '3', pT: isRound ? '12' : '3', nT: isRound ? '1' : '2', xsT: '',
       bnps: '1', bsch: 'STD', sllT: '1 1/2',
       azT: '0', aznT: '1', azpT: '90', offT: '0',
-      wref: 'tos', y0T: '3', nyT: '2', pyT: '3', amode: 'gauge', gT: '3 1/2', diaT: fam === 'hss' ? '9/16' : '13/16' };
+      both: false, bothF: false, autoY: false, autoG: false,
+      wref: 'tos', y0T: '3', nyT: '2', pyT: '3', amode: 'gauge', gT: fam === 'angl' ? '1 3/4' : '3 1/2', diaT: isRound ? '1' : fam === 'hss' ? '9/16' : '13/16' };
   }
   constructor(props) {
     super(props);
@@ -185,18 +193,27 @@ class Component extends DCLogic {
   }
   /** Hole X positions for a group: the exact-spots list wins over first+spacing+qty.
    *  Tokens are measured from the group's reference end. */
-  holeXs(g, L) {
+  /** Hole stations along the part. Distances count from a datum at each end:
+   *  a0 for End A, b1 for End B. Overall parts pass the long points (the real
+   *  ends of the piece); older center-to-center parts pass the work points. */
+  datum(aMin, bMax, L) { return this.state.lenMode === 'oal' ? [aMin, bMax] : [0, L]; }
+  holeXs(g, L, a0, b1) {
+    if (a0 == null) a0 = 0;
+    if (b1 == null) b1 = L;
     const xs = [];
     const list = String(g.xsT || '').trim();
     if (list) {
       for (const tok of list.split(/[,;]+/)) {
         const v = this.parseIn(tok);
-        if (v != null) xs.push(g.refEnd === 'A' ? v : L - v);
+        if (v != null) xs.push(g.refEnd === 'A' ? a0 + v : b1 - v);
       }
     } else {
       const x0 = this.parseIn(g.x0T) ?? 3, p = this.parseIn(g.pT) ?? 3;
       const n = Math.max(1, Math.min(60, Math.round(parseFloat(g.nT) || 1)));
-      for (let i = 0; i < n; i++) xs.push(g.refEnd === 'A' ? x0 + i * p : L - x0 - i * p);
+      for (let i = 0; i < n; i++) xs.push(g.refEnd === 'A' ? a0 + x0 + i * p : b1 - x0 - i * p);
+    }
+    if (g.both && !list) {
+      for (const x of xs.slice()) { const m = a0 + b1 - x; if (!xs.some(v => Math.abs(v - m) < 1 / 32)) xs.push(m); }
     }
     return xs.slice(0, 60);
   }
@@ -328,6 +345,7 @@ class Component extends DCLogic {
       c = run(Lw, warns);
     }
     c.key = key; c.sec = sec;
+    { const d2 = (!c.invalid && c.aMin != null && c.bMax != null) ? this.datum(c.aMin, c.bMax, c.L) : [0, c.L || 0]; c.x0 = d2[0]; c.x1 = d2[1]; }
     const dup = {};
     c.warns = (c.warns || []).filter(w => { const k = w.lvl + w.t; if (dup[k]) return false; dup[k] = 1; return true; }).slice(0, 8);
     if (!c.paths) c.paths = { vb: '0 0 100 10', gridP: '', refP: '', wpP: '', outAP: '', outBP: '', outCP: '', holesP: '', lbls: [], sw: .2, swThin: .1, fs: 2, dash: '1 1' };
@@ -397,7 +415,7 @@ class Component extends DCLogic {
   /** axis 'x' = along the part length; axis 'y' = across the depth (web rows). */
   centerGroup(id, axis) {
     const c = this.calc(); if (c.invalid || !(c.L > 0)) return;
-    const L = c.L, d = c.sec && c.sec.d;
+    const L = c.x1 - c.x0, d = c.sec && c.sec.d;
     this.setState(s => ({ groups: s.groups.map(g => {
       if (g.id !== id) return g;
       const patch = {};
@@ -414,7 +432,7 @@ class Component extends DCLogic {
   groupCenteredAx(g, c) {
     const out = { x: false, y: false };
     if (!c || c.invalid || !(c.L > 0)) return out;
-    const L = c.L, eps = 1 / 32;
+    const L = c.x1 - c.x0, eps = 1 / 32;
     const toks = String(g.xsT || '').split(/[,;]+/).map(t => t.trim()).filter(Boolean).map(t => this.parseIn(t)).filter(v => v != null);
     if (toks.length) out.x = Math.abs((Math.min(...toks) + Math.max(...toks)) / 2 - L / 2) < eps;
     else { const n = Math.max(1, Math.round(parseFloat(g.nT) || 1)), p = this.parseIn(g.pT) ?? 0, x0 = this.parseIn(g.x0T); out.x = x0 != null && Math.abs(x0 - (L - (n - 1) * p) / 2) < eps; }
@@ -428,7 +446,11 @@ class Component extends DCLogic {
    *  workable gauge by flange width. Channel: workable line ≈ half the flange
    *  from the back. Angle: AISC gauge-from-heel table by leg size. */
   stdGauge(g) {
-    const c = this._c || this.calc(), sec = c && c.sec, fam = this.state.family;
+    const c = this._c || this.calc(), sec = c && c.sec;
+    return this.stdGaugeFor(sec, this.state.family, g.face);
+  }
+  stdGaugeFor(sec, fam, gface) {
+    const g = { face: gface };
     if (!sec) return null;
     if (fam === 'angl') {
       const leg = g.face === 'hleg' ? sec.b : sec.a;
@@ -450,16 +472,22 @@ class Component extends DCLogic {
     for (const g of st.groups) {
       const { dia, slotL } = this.holeSize(g);
       const az0 = parseFloat(g.azT) || 0, azn = Math.max(1, Math.min(24, Math.round(parseFloat(g.aznT) || 1))), azp = parseFloat(g.azpT) || 90;
-      for (const x of this.holeXs(g, L)) for (let j = 0; j < azn; j++) {
+      const [hx0, hx1] = this.datum(Math.min(...a), Math.max(...b), L);
+      for (const x of this.holeXs(g, L, hx0, hx1)) for (let j = 0; j < azn; j++) {
         let deg = ((az0 + j * azp) % 360 + 360) % 360;
         const u = wrap * (((deg + 180) % 360) / 360);
         const rx = slotL && g.ax === 'x' ? slotL / 2 : dia / 2;
-        const ru = slotL && g.ax === 'y' ? slotL / 2 : dia / 2;
         const h = { face: 'wall', x, u, deg, dia, slotL, ax: g.ax, grp: g.id, type: g.type, bolt: this.holeBasis(g), refEnd: g.refEnd, ok: true };
-        if (u - ru < 0 || u + ru > wrap) { h.ok = false; warns.push({ lvl: 'err', t: 'Hole at ' + deg + '\u00B0 crosses the program seam (180\u00B0 BOTTOM) \u2014 rotate the pattern.' }); }
+        // true-diameter layout on pipe (see pipeHolePts)
+        const rho = g.type === 'stub' ? sec.ri : sec.ro;
+        const tooBig = !slotL && sec.kind === 'round' && dia / 2 >= rho - 1e-6;
+        if (!slotL && sec.kind === 'round' && !tooBig) { h.ro = sec.ro; h.rho = rho; h.uh = sec.ro * Math.asin(dia / 2 / rho); }
+        const ru = h.uh ? h.uh : (slotL && g.ax === 'y' ? slotL / 2 : dia / 2);
+        if (tooBig) { h.ok = false; warns.push({ lvl: 'err', t: '\u00D8' + this.fr16(dia) + ' hole is as wide as the pipe ' + (g.type === 'stub' ? 'ID' : 'OD') + ' \u2014 it cannot be cut. Use a smaller opening.' }); }
+        else if (u - ru < 0 || u + ru > wrap) { h.ok = false; warns.push({ lvl: 'err', t: 'Hole at ' + deg + '\u00B0 crosses the program seam (180\u00B0 BOTTOM) \u2014 rotate the pattern.' }); }
         else {
           const idx = Math.round(deg / 360 * N) % N;
-          if (x - rx < a[idx] + .1 || x + rx > b[idx] - .1) { h.ok = false; warns.push({ lvl: 'err', t: '\u00D8' + this.fr16(dia) + ' hole at x=' + this.fmtIn(x) + ', ' + deg + '\u00B0 runs off the end cut \u2014 skipped.' }); }
+          if (x - rx < a[idx] + .1 || x + rx > b[idx] - .1) { h.ok = false; warns.push({ lvl: 'err', t: '\u00D8' + this.fr16(dia) + ' hole ' + this.fmtIn(x - hx0) + ' from End A, ' + deg + '\u00B0 runs off the end cut \u2014 skipped.' }); }
         }
         holes.push(h);
       }
@@ -521,7 +549,8 @@ class Component extends DCLogic {
       const off = this.parseIn(g.offT) || 0;
       const face = ['T', 'R', 'B', 'L'].includes(g.face) ? g.face : 'T';
       const dir = face === 'T' ? 1 : face === 'R' ? -1 : face === 'B' ? -1 : 1;
-      for (const x of this.holeXs(g, L)) {
+      const [hx0, hx1] = this.datum(Math.min(...a), Math.max(...b), L);
+      for (const x of this.holeXs(g, L, hx0, hx1)) {
         let u = faceS[face] + dir * off;
         u = ((u % Pm) + Pm) % Pm;
         const rx = slotL && g.ax === 'x' ? slotL / 2 : dia / 2;
@@ -532,7 +561,7 @@ class Component extends DCLogic {
         else {
           let bi = 0, bd = 1e9;
           for (let k = 0; k < stns.length; k++) { const d = Math.abs(stns[k].s - u); if (d < bd) { bd = d; bi = k; } }
-          if (x - rx < a[bi] + .1 || x + rx > b[bi] - .1) { h.ok = false; warns.push({ lvl: 'err', t: '\u00D8' + this.fr16(dia) + ' hole at x=' + this.fmtIn(x) + ' (' + face + ') runs off the end cut \u2014 skipped.' }); }
+          if (x - rx < a[bi] + .1 || x + rx > b[bi] - .1) { h.ok = false; warns.push({ lvl: 'err', t: '\u00D8' + this.fr16(dia) + ' hole ' + this.fmtIn(x - hx0) + ' from End A (' + face + ' face) runs off the end cut \u2014 skipped.' }); }
         }
         holes.push(h);
       }
@@ -566,7 +595,7 @@ class Component extends DCLogic {
     let holesP = '';
     for (const h of holes) {
       if (!h.ok) continue;
-      const pts = h.slotL ? this.slotPts(h.x, h.u, h.slotL, h.dia, h.ax === 'x', 20, false) : this.circPts(h.x, h.u, h.dia / 2, 20, false);
+      const pts = h.slotL ? this.slotPts(h.x, h.u, h.slotL, h.dia, h.ax === 'x', 20, false) : h.uh ? this.pipeHolePts(h, 40, false) : this.circPts(h.x, h.u, h.dia / 2, 20, false);
       holesP += 'M' + pts.map(p => p[0].toFixed(3) + ' ' + p[1].toFixed(3)).join('L') + 'Z';
     }
     return { vb: x0.toFixed(2) + ' ' + (-fs * 2.2).toFixed(2) + ' ' + span.toFixed(2) + ' ' + (wrap + fs * 4).toFixed(2), gridP, refP, wpP, outAP: d, outBP: '', outCP: '', holesP, lbls, sw: span / 900 * 1.6, swThin: span / 900, fs, dash: (fs * .5).toFixed(2) + ' ' + (fs * .35).toFixed(2) };
@@ -673,16 +702,18 @@ class Component extends DCLogic {
     };
     const tfO = invalid ? [] : flgOut('tf'), bfO = invalid ? [] : flgOut('bf');
     const holes = [];
+    const [hx0, hx1] = this.datum(aMin, bMax, Ln);
     if (st.wantHoles && this.D) for (const g of st.groups) {
       const { dia, slotL } = this.holeSize(g);
-      const gxs = this.holeXs(g, Ln);
+      const gxs = this.holeXs(g, Ln, hx0, hx1);
       if (g.face === 'web') {
-        const y0 = this.parseIn(g.y0T) ?? 3, py = this.parseIn(g.pyT) ?? 3;
+        const py = this.parseIn(g.pyT) ?? 3;
         const ny = Math.max(1, Math.min(30, Math.round(parseFloat(g.nyT) || 1)));
+        const y0 = g.autoY ? (d - (ny - 1) * py) / 2 : (this.parseIn(g.y0T) ?? 3);
         const list = [];
         for (let j = 0; j < ny; j++) {
           let y;
-          if (g.wref === 'tos') y = d / 2 - y0 - j * py;
+          if (g.autoY || g.wref === 'tos') y = d / 2 - y0 - j * py;
           else if (g.wref === 'bos') y = -d / 2 + y0 + j * py;
           else y = -(y0 + j * py);
           list.push(y);
@@ -692,11 +723,17 @@ class Component extends DCLogic {
         }
       } else {
         const zs = [];
-        const gv = this.parseIn(g.gT) ?? 3.5;
-        if (g.amode === 'gauge') { if (sec.chan) zs.push(zL + gv); else { zs.push(-gv / 2, gv / 2); } }
+        const stdG = g.autoG ? this.stdGaugeFor(sec, st.family, 'tf') : null;
+        const gv = stdG != null ? stdG : (this.parseIn(g.gT) ?? 3.5);
+        if (stdG != null || g.amode === 'gauge') { if (sec.chan) zs.push(zL + gv); else { zs.push(-gv / 2, gv / 2); } }
         else zs.push(sec.chan ? zL + gv : gv);
-        for (const x of gxs) for (const z of zs) {
-          holes.push({ face: g.face, x, c: z, dia, slotL, ax: g.ax, grp: g.id, type: g.type, bolt: this.holeBasis(g), refEnd: g.refEnd });
+        { // side edge distance on the flange (hole centre to the flange edge)
+          const bolt = this.frIn(this.holeBasis(g)) || dia;
+          const edge = Math.min(...zs.map(z => Math.min(z - zL, zR - z)));
+          if (zs.length && edge > 0 && edge < 1.25 * bolt) warns.push({ lvl: 'warn', t: 'Flange holes are ' + this.fmtIn(edge) + ' from the flange edge \u2014 tight for a ' + this.holeBasis(g) + '\u2033 bolt (want ' + this.fmtIn(1.25 * bolt) + ' or more). Use a smaller bolt or gauge.' });
+        }
+        for (const face of (g.bothF ? ['tf', 'bf'] : [g.face])) for (const x of gxs) for (const z of zs) {
+          holes.push({ face, x, c: z, dia, slotL, ax: g.ax, grp: g.id, type: g.type, bolt: this.holeBasis(g), refEnd: g.refEnd });
         }
       }
     }
@@ -710,13 +747,13 @@ class Component extends DCLogic {
         const tests = [[h.x - rx, h.c], [h.x + rx, h.c], [h.x, h.c - ry], [h.x, h.c + ry], [h.x, h.c]];
         for (const t of tests) if (!this.pip(t, O)) { h.ok = false; break; }
       }
-      if (!h.ok && !invalid) warns.push({ lvl: 'err', t: '\u00D8' + this.fr16(h.dia) + ' hole at x=' + this.fmtIn(h.x) + ' (' + h.face.toUpperCase() + ') falls off the material / in a cope \u2014 skipped.' });
-      else if (h.ok && h.face === 'web' && Math.abs(h.c) > hw - 0.35 - ry) warns.push({ lvl: 'warn', t: 'Web hole at x=' + this.fmtIn(h.x) + ' is tight to the flange fillet (k-zone) \u2014 verify.' });
+      if (!h.ok && !invalid) warns.push({ lvl: 'err', t: '\u00D8' + this.fr16(h.dia) + ' hole ' + this.fmtIn(h.x - hx0) + ' from End A (' + h.face.toUpperCase() + ') falls off the material / in a cope \u2014 skipped.' });
+      else if (h.ok && h.face === 'web' && Math.abs(h.c) > hw - 0.35 - ry) warns.push({ lvl: 'warn', t: 'Web hole ' + this.fmtIn(h.x - hx0) + ' from End A is tight to the flange fillet (k-zone) \u2014 verify.' });
       const bolt = this.frIn(h.bolt) || h.dia;
       if (h.ok) {
         const edgeA = h.x - xA(h.face === 'web' ? h.c : (h.face === 'tf' ? d / 2 : -d / 2), h.face === 'web' ? 0 : h.c);
         const edgeB = xB(h.face === 'web' ? h.c : (h.face === 'tf' ? d / 2 : -d / 2), h.face === 'web' ? 0 : h.c) - h.x;
-        if (Math.min(edgeA, edgeB) - rx < 1.25 * bolt && Math.min(edgeA, edgeB) - rx > 0) warns.push({ lvl: 'warn', t: 'Edge distance ' + this.fmtIn(Math.min(edgeA, edgeB)) + ' at x=' + this.fmtIn(h.x) + ' < 1.25\u00D7bolt \u2014 check J3.4.' });
+        if (Math.min(edgeA, edgeB) - rx < 1.25 * bolt && Math.min(edgeA, edgeB) - rx > 0) warns.push({ lvl: 'warn', t: 'Edge distance ' + this.fmtIn(Math.min(edgeA, edgeB)) + ' on the hole ' + this.fmtIn(h.x - hx0) + ' from End A < 1.25\u00D7bolt \u2014 check J3.4.' });
       }
     }
     const wt = sec.wtFt * (Ln / 12) * this.matRec().f;
@@ -788,14 +825,15 @@ class Component extends DCLogic {
       const { dia, slotL } = this.holeSize(g);
       const gv = this.parseIn(g.gT) ?? 1.75;
       const face = g.face === 'hleg' ? 'hleg' : 'vleg';
-      for (const x of this.holeXs(g, Ln)) {
+      const [hx0, hx1] = this.datum(aMin, bMax, Ln);
+      for (const x of this.holeXs(g, Ln, hx0, hx1)) {
         const h = { face, x, c: gv, dia, slotL, ax: g.ax, grp: g.id, type: g.type, bolt: this.holeBasis(g), refEnd: g.refEnd, ok: true };
         const O = face === 'vleg' ? vleg : hleg;
         const rx = slotL && g.ax === 'x' ? slotL / 2 : dia / 2;
         const ry = slotL && g.ax === 'y' ? slotL / 2 : dia / 2;
         const tests = [[x - rx, gv], [x + rx, gv], [x, gv - ry], [x, gv + ry]];
         for (const q of tests) if (!this.pip(q, O)) { h.ok = false; break; }
-        if (!h.ok) warns.push({ lvl: 'err', t: '\u00D8' + this.fr16(dia) + ' hole at x=' + this.fmtIn(x) + ' (' + (face === 'vleg' ? 'VERT' : 'HORIZ') + ' LEG, g=' + this.fmtIn(gv) + ') falls off the leg \u2014 skipped.' });
+        if (!h.ok) warns.push({ lvl: 'err', t: '\u00D8' + this.fr16(dia) + ' hole ' + this.fmtIn(x - hx0) + ' from End A (' + (face === 'vleg' ? 'VERT' : 'HORIZ') + ' LEG, g=' + this.fmtIn(gv) + ') falls off the leg \u2014 skipped.' });
         holes.push(h);
       }
     }
@@ -860,9 +898,8 @@ class Component extends DCLogic {
    *  the group spec that puts a hole there (snap 1/16\u2033 / 5\u00B0), a live dimension
    *  readout, and the band position for the ghost marker. */
   bandSpot(c, px, py) {
-    const L = c.L;
-    const x = Math.round(Math.max(0, Math.min(L, px)) * 16) / 16;
-    const posTxt = this.fmtIn(x) + ' FROM A \u00B7 ' + this.fmtIn(L - x) + ' FROM B';
+    const x = c.x0 + Math.round(Math.max(0, Math.min(c.x1 - c.x0, px - c.x0)) * 16) / 16;
+    const posTxt = this.fmtIn(x - c.x0) + ' FROM END A \u00B7 ' + this.fmtIn(c.x1 - x) + ' FROM END B';
     if (c.kind === 'round') {
       if (py < -0.001 || py > c.wrap + 0.001) return null;
       const deg = Math.round((((py / c.wrap) * 360 - 180 + 360) % 360) / 5) * 5 % 360;
@@ -942,7 +979,7 @@ class Component extends DCLogic {
       const g = st.groups.find(q => q.id === hit.grp);
       if (!g || !String(g.xsT || '').trim()) return; // pattern hole \u2014 drag it, or edit its group in the sidebar
       const toks = String(g.xsT).split(/[,;]+/).map(t => t.trim()).filter(Boolean);
-      const target = g.refEnd === 'A' ? hit.x : L - hit.x;
+      const target = g.refEnd === 'A' ? hit.x - c.x0 : c.x1 - hit.x;
       let bi = -1, bd = 1e9;
       toks.forEach((t, i) => { const v = this.parseIn(t); if (v != null && Math.abs(v - target) < bd) { bd = Math.abs(v - target); bi = i; } });
       if (bi >= 0) toks.splice(bi, 1);
@@ -955,12 +992,12 @@ class Component extends DCLogic {
     let tg = null;
     if (st.wantHoles) for (const q of st.groups) if (String(q.xsT || '').trim() && sig(q) === want) tg = q;
     if (tg) {
-      const tok = this.fmtTok(tg.refEnd === 'A' ? x : L - x);
+      const tok = this.fmtTok(tg.refEnd === 'A' ? x - c.x0 : c.x1 - x);
       this.setState(s => ({ step: 4, wantHoles: true, groups: s.groups.map(q => q.id === tg.id ? Object.assign({}, q, { xsT: String(q.xsT).trim() + ', ' + tok }) : q) }));
     } else {
       this.setState(s => ({
         step: 4, wantHoles: true, gid: s.gid + 1,
-        groups: (s.wantHoles ? s.groups : []).concat([Object.assign(Component.defGroup(s.gid, st.family), spec, { refEnd: 'A', xsT: this.fmtTok(x) })])
+        groups: (s.wantHoles ? s.groups : []).concat([Object.assign(Component.defGroup(s.gid, st.family), spec, { refEnd: 'A', xsT: this.fmtTok(x - c.x0) })])
       }));
     }
   }
@@ -978,7 +1015,7 @@ class Component extends DCLogic {
     if (!g) return;
     if (String(g.xsT || '').trim()) {
       const toks = String(g.xsT).split(/[,;]+/).map(t => t.trim()).filter(Boolean);
-      const target = g.refEnd === 'A' ? hit.x : c.L - hit.x;
+      const target = g.refEnd === 'A' ? hit.x - c.x0 : c.x1 - hit.x;
       let bi = -1, bd = 1e9;
       toks.forEach((t, i) => { const v = this.parseIn(t); if (v != null && Math.abs(v - target) < bd) { bd = Math.abs(v - target); bi = i; } });
       if (bi >= 0) this._drag = { mode: 'list', gid: g.id, tokIdx: bi, startX: hit.x };
@@ -999,7 +1036,7 @@ class Component extends DCLogic {
         if (Math.abs(sp.x - d.startX) >= 1 / 16) this._dragMoved = true;
         if (d.mode === 'list') {
           const toks = String(g.xsT).split(/[,;]+/).map(t => t.trim()).filter(Boolean);
-          const tok = this.fmtTok(g.refEnd === 'A' ? sp.x : c.L - sp.x);
+          const tok = this.fmtTok(g.refEnd === 'A' ? sp.x - c.x0 : c.x1 - sp.x);
           if (toks[d.tokIdx] !== tok) { toks[d.tokIdx] = tok; this.setState(s => ({ groups: s.groups.map(q => q.id === g.id ? Object.assign({}, q, { xsT: toks.join(', ') }) : q) })); }
         } else {
           const delta = sp.x - d.startX;
@@ -1016,7 +1053,7 @@ class Component extends DCLogic {
 
   fileBase() {
     const st = this.state, c = this.calc();
-    return ((st.mark || 'part') + '_' + c.sec.label + '_' + (c.L ? Math.round(c.L * 16) / 16 : 0) + 'in').replace(/[^\w.-]+/g, '-');
+    return ((st.mark || 'part') + '_' + c.sec.label + '_' + (c.L ? Math.round((c.OAL || c.L) * 16) / 16 : 0) + 'in').replace(/[^\w.-]+/g, '-');
   }
 
   componentDidMount() { this._syncSel(); this._start(); }
@@ -1122,7 +1159,26 @@ class Component extends DCLogic {
 
   /** Half-width in x of hole h at wrap-offset du from its center, or null
    *  outside the hole's u-span. Handles round holes and both slot axes. */
+  /** Flat-pattern outline of a round wall hole on PIPE. The hole must measure
+   *  its true diameter straight across the pipe (the chord), so around the
+   *  pipe it is laid out by arc length: u = ro * asin(y / rho). rho is the
+   *  radius the diameter is held at: the pipe OD for plain / set-on openings,
+   *  the pipe ID for a branch that has to pass through the wall. A plain
+   *  flat circle would wrap to an opening that is too narrow across. */
+  pipeHolePts(h, n, cw) {
+    const p = [], r = h.dia / 2;
+    for (let i = 0; i < n; i++) {
+      const a = (cw ? -1 : 1) * i / n * 2 * Math.PI, y = r * Math.sin(a);
+      p.push([h.x + r * Math.cos(a), h.u + h.ro * Math.asin(Math.max(-1, Math.min(1, y / h.rho)))]);
+    }
+    return p;
+  }
   holeHalfX(h, du) {
+    if (h.uh) {
+      if (Math.abs(du) > h.uh + 1e-9) return null;
+      const y = h.rho * Math.sin(du / h.ro), rr = h.dia / 2;
+      return Math.sqrt(Math.max(0, rr * rr - y * y));
+    }
     const r = h.dia / 2, ad = Math.abs(du);
     if (!h.slotL) return ad > r + 1e-9 ? null : Math.sqrt(Math.max(0, r * r - du * du));
     if (h.ax === 'x') return ad > r + 1e-9 ? null : (h.slotL - h.dia) / 2 + Math.sqrt(Math.max(0, r * r - du * du));
@@ -1132,7 +1188,7 @@ class Component extends DCLogic {
     return Math.sqrt(Math.max(0, r * r - dd * dd));
   }
   /** Half of a hole's extent along the wrap direction. */
-  holeUSpan(h) { return h.slotL && h.ax === 'y' ? h.slotL / 2 : h.dia / 2; }
+  holeUSpan(h) { return h.uh ? h.uh : (h.slotL && h.ax === 'y' ? h.slotL / 2 : h.dia / 2); }
 
   /** Faceted closed solid for round/box stock with every OK wall hole cut
    *  through the near wall as a square radial cut — same angular extent on
@@ -1569,6 +1625,8 @@ class Component extends DCLogic {
       cfg.lenMode = (dO < dW && dO <= tol) ? 'oal' : 'wp';   // the closer match wins; a tie (square ends) is WP
     }
     if (cfg.lenMode !== 'oal') cfg.lenMode = 'wp';
+    if (pt.qty > 0) cfg.qty = pt.qty;
+    if (pt.mark && pt.mark !== '-') cfg.mark = pt.mark;
     return cfg;
   }
 
@@ -1602,11 +1660,163 @@ class Component extends DCLogic {
     return out;
   }
 
-  _download(text, name, mime) {
+  /** OpenCascade engine + solid builder, loaded the first time a TubesT file is asked for. */
+  _occ() {
+    if (!this._occP) this._occP = (async () => {
+      const factory = (await import('./vendor/occ/opencascade.wasm.js')).default;
+      const oc = await factory({ locateFile: (p) => './vendor/occ/' + p });
+      const m = await import('./occ-solid.js');
+      return { oc, m };
+    })();
+    return this._occP;
+  }
+  /** True while the part has anything marked "fix before cutting". A hole the
+   *  app had to skip is a hole missing from the part, so nothing is exported. */
+  blocked(c) { return !!(c.invalid || (c.warns || []).some(w => w.lvl === 'err')); }
+  /** One checked true solid of the part now on the form -> { name, text }.
+   *  Throws (and writes nothing) if the kernel's own checks do not pass. */
+  _solidFile(oc, m, kind) {
+    const r = this.calc();
+    if (this.blocked(r)) throw new Error('Fix the items marked in red first.');
+    const { K, shape } = m.buildSolid(oc, this, r);
+    const info = m.inspect(K, shape);
+    if (!info.valid || info.solids !== 1 || info.shells !== 1) throw new Error('The solid did not pass its own check (valid ' + info.valid + ', solids ' + info.solids + ').');
+    const want = r.LP || r.OAL || r.L, got = info.bbox[0][1] - info.bbox[0][0];
+    if (Math.abs(got - want) > .01) throw new Error('The solid came out ' + got.toFixed(3) + '″ long, expected ' + want.toFixed(3) + '″.');
+    const name = this.fileBase();
+    return { name, text: kind === 'igs' ? m.writeIges(K, shape, name) : m.writeStep(K, shape, name) };
+  }
+  /** True-solid export for TubesT: kind 'igs' or 'step'. The solid is checked by the engine before any file is handed over. */
+  async dlSolid(kind) {
+    if (this.state.solidBusy || this.state.jobBusy) return;
+    this.setState({ solidBusy: kind });
+    await new Promise(r => setTimeout(r, 30));           // let the "Building..." label paint
+    try {
+      const { oc, m } = await this._occ();
+      const f = this._solidFile(oc, m, kind);
+      if (kind === 'igs') this._download(f.text, f.name + ' - SOLID.igs', 'model/iges');
+      else this._download(f.text, f.name + ' - SOLID.step', 'application/step');
+    } catch (e) {
+      this._occP = null;                                  // an engine error can leave it unusable - reload it next time
+      alert('No file was written.\n\n' + (e && e.message ? e.message : e) + '\n\nNothing was downloaded. If this keeps happening, reload the page and try again.');
+    } finally { this.setState({ solidBusy: '' }); }
+  }
+  /** A saved setup on its way into the form. A part whose ends are square
+   *  measures the same either way, so it becomes an overall part. Only an older
+   *  part with an angled or saddled end stays center to center (the form says so). */
+  forForm(cfg) {
+    const saved = this.state, savedC = this._c;
+    let same = false;
+    this.state = Object.assign({}, saved, cfg);
+    this._c = null;
+    try { const r = this.calc(); same = !r.invalid && r.aMin != null && Math.abs(r.aMin) < 1e-9 && Math.abs(r.bMax - r.L) < 1e-9; } catch (e) { same = false; } finally { this.state = saved; this._c = savedC; }
+    const out = Object.assign({}, cfg, { heat: '' });
+    if (same) out.lenMode = 'oal';
+    if (out.ends) out.ends = { A: Object.assign({}, out.ends.A, { wantBevel: false }), B: Object.assign({}, out.ends.B, { wantBevel: false }) };
+    return out;
+  }
+  /** Run fn with a job-list part loaded as the form state, then put the form back. Synchronous. */
+  _withPart(pt, fn) {
+    const cfg = this.cfgFromPart(pt);
+    if (!cfg) throw new Error('its saved setup could not be read');
+    const saved = this.state, savedC = this._c;
+    this.state = Object.assign({}, saved, cfg);
+    this._c = null;
+    try { return fn(); } finally { this.state = saved; this._c = savedC; }
+  }
+  /** File names for a whole job: one IGS per mark, quantity in the name so the
+   *  operator sets the count in TubesT without opening the cut list. */
+  jobFileName(pt, base, used) {
+    let nm = base + ' - QTY ' + pt.qty, n = 2;
+    while (used[nm]) nm = base + ' (' + (n++) + ') - QTY ' + pt.qty;
+    used[nm] = 1;
+    return nm + '.igs';
+  }
+  /** Every part in the job as a checked IGS solid, zipped with the cut list. */
+  async dlJobFiles() {
+    const st0 = this.state;
+    if (st0.jobBusy || st0.solidBusy) return;
+    if (!st0.parts.length) { alert('No parts in the job yet.'); return; }
+    const files = [], skipped = [], used = {};
+    this.setState({ jobBusy: 'Starting…' });
+    await new Promise(r => setTimeout(r, 30));
+    try {
+      let eng = await this._occ();
+      for (let i = 0; i < st0.parts.length; i++) {
+        const pt = st0.parts[i];
+        this.setState({ jobBusy: 'Building ' + (i + 1) + ' of ' + st0.parts.length + '…' });
+        await new Promise(r => setTimeout(r, 20));
+        try {
+          const f = this._withPart(pt, () => this._solidFile(eng.oc, eng.m, 'igs'));
+          const name = this.jobFileName(pt, f.name, used);
+          files.push({ name, data: f.text });
+          this._fsWrite(name, f.text);
+        } catch (e) {
+          skipped.push(pt.mark + ' — ' + (e && e.message ? e.message : e));
+          this._occP = null; eng = await this._occ();     // an engine error can leave it unusable
+        }
+      }
+      if (files.length) {
+        const csv = this._jobCsv();
+        if (csv) files.push({ name: 'cut list.csv', data: csv });
+        const job = (st0.job || '').replace(/[^\w.-]+/g, '-');
+        this._download(this._zip(files), (job ? 'JOB-' + job : 'job') + ' - laser files.zip', 'application/zip', true);
+      }
+      if (skipped.length) alert((files.length ? 'These parts were left out of the zip:' : 'No files were written.') + '\n\n' + skipped.join('\n') + '\n\nOpen each one from the job list and fix what is shown in red.');
+    } catch (e) {
+      this._occP = null;
+      alert('No files were written.\n\n' + (e && e.message ? e.message : e));
+    } finally { this.setState({ jobBusy: '' }); }
+  }
+  /** Plain (stored, uncompressed) ZIP. files: [{ name, data: string | Uint8Array }] -> Blob. */
+  _zip(files) {
+    const enc = new TextEncoder();
+    const T = Component._crcT || (Component._crcT = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })());
+    const crc = (u8) => { let c = 0xFFFFFFFF; for (let i = 0; i < u8.length; i++) c = T[(c ^ u8[i]) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
+    const d = new Date(), dosT = (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1), dosD = ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate();
+    const body = [], cen = [];
+    let off = 0;
+    for (const f of files) {
+      const nm = enc.encode(f.name), data = typeof f.data === 'string' ? enc.encode(f.data) : f.data, c = crc(data);
+      const lh = new DataView(new ArrayBuffer(30));
+      lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(6, 0x0800, true);
+      lh.setUint16(10, dosT, true); lh.setUint16(12, dosD, true); lh.setUint32(14, c, true);
+      lh.setUint32(18, data.length, true); lh.setUint32(22, data.length, true); lh.setUint16(26, nm.length, true);
+      body.push(new Uint8Array(lh.buffer), nm, data);
+      const ch = new DataView(new ArrayBuffer(46));
+      ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true); ch.setUint16(8, 0x0800, true);
+      ch.setUint16(12, dosT, true); ch.setUint16(14, dosD, true); ch.setUint32(16, c, true);
+      ch.setUint32(20, data.length, true); ch.setUint32(24, data.length, true); ch.setUint16(28, nm.length, true); ch.setUint32(42, off, true);
+      cen.push(new Uint8Array(ch.buffer), nm);
+      off += 30 + nm.length + data.length;
+    }
+    const cenLen = cen.reduce((n, x) => n + x.length, 0);
+    const eo = new DataView(new ArrayBuffer(22));
+    eo.setUint32(0, 0x06054b50, true); eo.setUint16(8, files.length, true); eo.setUint16(10, files.length, true); eo.setUint32(12, cenLen, true); eo.setUint32(16, off, true);
+    return new Blob(body.concat(cen, [new Uint8Array(eo.buffer)]), { type: 'application/zip' });
+  }
+  /** Point the 3D camera at one end of the part (the ends are where the work is). */
+  viewEnd(id) {
+    const stage = this._stage, T = this._T, c = this.calc();
+    if (!stage || !T || !stage._camera || c.invalid) return;
+    const s = c.sec, size = s.kind === 'round' ? s.od : s.kind === 'box' ? Math.max(s.B, s.H) : s.kind === 'angl' ? Math.max(s.a, s.b) : Math.max(s.d, s.bf);
+    const E = id === 'A' ? c.A : c.B;
+    let rad = Math.max(size * 2.1, Math.min(c.L / 2, (c.LP - c.SP) * .9));
+    if (this.state.ghost && E && E.mode === 'saddle' && E.sd) rad = Math.max(rad, E.sd.hod * 1.15);
+    const x = id === 'A' ? 0 : c.L;
+    const dist = (rad / Math.tan((stage._camera.fov * Math.PI) / 360)) * 1.2;
+    const dir = new T.Vector3(id === 'A' ? -1 : 1, .5, 1.15).normalize();
+    stage._controls.target.set(x, 0, 0);
+    stage._camera.position.set(x, 0, 0).add(dir.multiplyScalar(dist));
+    stage._controls.update();
+    if (this.state.spin) this.setState({ spin: false });
+  }
+  _download(text, name, mime, noFolderCopy) {
     const url = URL.createObjectURL(new Blob([text], { type: mime || 'text/plain' }));
     const el = document.createElement('a');
     el.href = url; el.download = name; document.body.appendChild(el); el.click(); el.remove();
     setTimeout(() => URL.revokeObjectURL(url), 4000);
+    if (noFolderCopy) return;
     this._fsWrite(name, text).then(okW => { if (okW) this.setState({ archMsg: name + ' → copied to "' + this.state.fsName + '" ✓' }); });
   }
   // DXF/CSV text must stay plain ASCII — legacy CAM readers (no $DWGCODEPAGE) garble unicode.
@@ -1620,7 +1830,7 @@ class Component extends DCLogic {
   }
   headerNote() {
     const st = this.state, c = this.calc();
-    return 'Steampunk Fabrication | ' + (st.job ? 'JOB ' + st.job + ' | ' : '') + 'MARK ' + (st.mark || '-') + ' | ' + c.sec.label + ' x ' + this.fmtFtIn(c.L) + (c.LP > 0 && Math.abs(c.LP - c.L) > 1 / 64 ? ' CL (LONG POINT ' + this.fmtFtIn(c.LP) + ')' : '') + ' | A: ' + this.endSpecText(c.A || {}, c.sec) + ' | B: ' + this.endSpecText(c.B || {}, c.sec) + ' | TRUE SIZE, KERF IN CAM';
+    return 'Steampunk Fabrication | ' + (st.job ? 'JOB ' + st.job + ' | ' : '') + 'MARK ' + (st.mark || '-') + ' | ' + c.sec.label + ' x ' + this.fmtFtIn(c.OAL || c.L) + (c.LP > 0 && Math.abs(c.LP - c.SP) > 1 / 64 ? ' OVERALL (SHORT POINT ' + this.fmtFtIn(c.SP) + ')' : '') + ' | A: ' + this.endSpecText(c.A || {}, c.sec) + ' | B: ' + this.endSpecText(c.B || {}, c.sec) + ' | TRUE SIZE, KERF IN CAM';
   }
   _objText() {
     const e = this._export;
@@ -1764,6 +1974,7 @@ class Component extends DCLogic {
       for (const h of c.holes) {
         if (!h.ok) continue;
         if (h.slotL) poly(this.slotPts(h.x, h.u, h.slotL, h.dia, h.ax === 'x', 40, false), 'CUT', true);
+        else if (h.uh) poly(this.pipeHolePts(h, 96, false), 'CUT', true);
         else { w(0, 'CIRCLE'); w(8, 'CUT'); w(10, h.x.toFixed(6)); w(20, h.u.toFixed(6)); w(40, (h.dia / 2).toFixed(6)); }
       }
       if (c.kind === 'round') { for (const [nm, f] of [['180DEG BOTTOM (SEAM)', 0], ['270DEG', .25], ['0DEG TOP', .5], ['90DEG', .75], ['180DEG BOTTOM', 1]]) { line(c.aMin - .5, wrap * f, c.bMax + .5, wrap * f, 'REF'); text(c.aMin - .4, wrap * f + .12, .2, nm, 'REF'); } }
@@ -2044,7 +2255,7 @@ class Component extends DCLogic {
     const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
     const faceLbl = (h) => c.kind === 'round' ? h.deg + '°' : c.kind === 'box' ? h.face + ' ' + this.fmtIn(h.off) : c.kind === 'angl' ? (h.face === 'vleg' ? 'V-LEG g' : 'H-LEG g') + this.fmtIn(h.c) : h.face.toUpperCase() + ' ' + this.fmtIn(h.c);
     const hdrTxt = (E) => { const hh = c.kind === 'round' && E && E.mode === 'saddle' ? this.headerHole(E, c.sec) : null; return hh ? ' — HEADER HOLE ' + this.fmtIn(hh.along) + ' ALONG × ' + this.fmtIn(hh.around) + ' AROUND (SEPARATE HDR-HOLE DXF)' : ''; };
-    const rows = c.holes.map(h => '<tr><td>' + h.grp + '</td><td>' + faceLbl(h) + '</td><td>' + h.type.toUpperCase() + '</td><td>Ø' + this.fr16(h.dia) + (h.slotL ? ' × ' + this.fmtIn(h.slotL) + ' (' + (h.ax === 'x' ? 'ALONG' : 'ACROSS') + ')' : '') + '</td><td>' + this.fmtIn(h.x) + '</td><td>' + (h.ok ? 'OK' : '<span style="color:#D2402F;font-weight:700">CHECK</span>') + '</td></tr>').join('');
+    const rows = c.holes.map(h => '<tr><td>' + h.grp + '</td><td>' + faceLbl(h) + '</td><td>' + h.type.toUpperCase() + '</td><td>Ø' + this.fr16(h.dia) + (h.slotL ? ' × ' + this.fmtIn(h.slotL) + ' (' + (h.ax === 'x' ? 'ALONG' : 'ACROSS') + ')' : '') + '</td><td>' + this.fmtIn(h.x - c.x0) + '</td><td>' + (h.ok ? 'OK' : '<span style="color:#D2402F;font-weight:700">CHECK</span>') + '</td></tr>').join('');
     const svg = '<svg viewBox="' + p.vb + '" style="width:100%;display:block">' +
       '<path d="' + p.gridP + '" stroke="#ddd" stroke-width="' + p.swThin + '" fill="none"/>' +
       '<path d="' + p.refP + '" stroke="#bbb" stroke-width="' + p.swThin + '" fill="none"/>' +
@@ -2057,8 +2268,8 @@ class Component extends DCLogic {
     const payload = this.encodeCfg(this.snapshot());
     return '<!DOCTYPE html><html><head><meta charset="utf-8"><title>CUT TICKET ' + esc(st.mark) + '</title><style>' + this._ticketCss() + '</style></head><body>' +
       this._ticketTop('Cut Ticket', (st.job ? 'JOB <b>' + esc(st.job) + '</b><br>' : '') + new Date().toLocaleDateString() + '<br>TRUE SIZE — KERF STAYS IN CAM') +
-      '<table><tr><th>Mark</th><th>Qty</th><th>Heat</th><th>Grade</th><th>Section</th><th>Cut len</th><th>Long point</th><th>Short point</th><th>Wt ea</th></tr>' +
-      '<tr><td class="big">' + esc(st.mark || '—') + '</td><td class="big">' + st.qty + '</td><td>' + esc(st.heat || '—') + '</td><td>' + this.matRec().label + '</td><td>' + this.famLabel() + ' ' + c.sec.label + '</td><td class="big">' + this.fmtFtIn(c.L) + '</td><td class="hv big">' + this.fmtFtIn(c.LP) + '</td><td>' + this.fmtFtIn(c.SP) + '</td><td>' + c.wt.toFixed(0) + ' LB</td></tr></table>' +
+      '<table><tr><th>Mark</th><th>Qty</th><th>Grade</th><th>Section</th><th>Length overall</th><th>Short point</th><th>Wt ea</th></tr>' +
+      '<tr><td class="big">' + esc(st.mark || '—') + '</td><td class="big">' + st.qty + '</td><td>' + this.matRec().label + '</td><td>' + this.famLabel() + ' ' + c.sec.label + '</td><td class="hv big">' + this.fmtFtIn(c.OAL || c.L) + '</td><td>' + this.fmtFtIn(c.SP) + '</td><td>' + c.wt.toFixed(0) + ' LB</td></tr></table>' +
       '<h2>End prep</h2>' +
       '<table><tr><th style="width:72px">End</th><th>Prep</th></tr>' +
       '<tr><td class="big">A · LEFT</td><td>' + this.endSpecText(c.A, c.sec) + hdrTxt(c.A) + '</td></tr>' +
@@ -2066,7 +2277,7 @@ class Component extends DCLogic {
       (c.warns.length ? '<div class="flags"><b>Check before cutting</b>' + c.warns.map(x => '<div>■ ' + esc(x.t) + '</div>').join('') + '</div>' : '') +
       '<h2>What the laser cuts <span class="sub">' + (c.kind === 'round' || c.kind === 'box' ? 'TRUE SIZE · X ALONG THE STICK · Y WRAPS FROM THE BOTTOM SEAM (' + (c.kind === 'round' ? '180°' : 'BOTTOM FACE CL') + ') · TOP OF PART AT MID-BAND' : 'TRUE SIZE · EACH FACE ITS OWN BAND') + '</span></h2>' +
       '<div class="drawing">' + svg + '</div>' +
-      (rows ? '<h2>Holes</h2><table><tr><th>Grp</th><th>Where</th><th>Type</th><th>Hole</th><th>X from WP A</th><th>Status</th></tr>' + rows + '</table>' : '<p class="k">NO HOLES.</p>') +
+      (rows ? '<h2>Holes</h2><table><tr><th>Grp</th><th>Where</th><th>Type</th><th>Hole</th><th>From End A</th><th>Status</th></tr>' + rows + '</table>' : '<p class="k">NO HOLES.</p>') +
       '<div class="qrrow">' + this._qrImg(payload, 3) + '<div class="k"><b style="font:700 9px/1.8 Saira,Arial,sans-serif;letter-spacing:.18em;color:#2F363F;text-transform:uppercase;display:block">Recall this part</b>Scan the QR or paste its code into PART BUILDER ▸ RECALL to reload this exact part and pull its DXF / 3D / ticket. True size — kerf + bevel comp stay in CAM. ' + (c.kind === 'round' || c.kind === 'box' ? 'Rotary program measured OD.' : 'Nominal dims — verify odd sizes. Fillets (k-zone) not modeled.') + '</div></div>' +
       '<div class="sign"><div class="sig">Fit by</div><div class="sig">QC</div><div class="sig">Date</div></div>' +
       '<p class="k" style="margin-top:8px">Print: Ctrl/Cmd+P</p>' +
@@ -2075,14 +2286,14 @@ class Component extends DCLogic {
 
   _jobTicketHtml() {
     const st = this.state;
-    if (!st.parts.length) { alert('No parts in the job yet — ADD TO JOB LIST on step 5 first.'); return null; }
+    if (!st.parts.length) { alert('No parts in the job yet — use Add to job list first.'); return null; }
     const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
     const nests = this.nestGroups();
     const rates = { carbon: parseFloat(st.rateCT) || 0, stainless: parseFloat(st.rateST) || 0, aluminum: parseFloat(st.rateAT) || 0 };
     const totWt = st.parts.reduce((s, x) => s + x.wt * x.qty, 0);
     const totCost = st.parts.reduce((s, x) => s + x.wt * x.qty * (rates[x.cat] || 0), 0);
     const totPieces = st.parts.reduce((s, x) => s + x.qty, 0);
-    const rows = st.parts.map(p => '<tr><td style="width:74px">' + this._qrImg(this.ticketCode(p), 2) + '<div style="font-size:8.5px;color:#5C6670">' + p.code + '</div></td><td class="big">' + esc(p.mark) + '</td><td>' + p.qty + '</td><td>' + esc(p.desc) + '</td><td>' + p.lenT2 + '</td><td>' + this.fmtFtIn(p.oal) + '</td><td>' + p.wt.toFixed(0) + '</td><td>' + (p.wt * p.qty).toFixed(0) + '</td></tr>').join('');
+    const rows = st.parts.map(p => '<tr><td style="width:74px">' + this._qrImg(this.ticketCode(p), 2) + '<div style="font-size:8.5px;color:#5C6670">' + p.code + '</div></td><td class="big">' + esc(p.mark) + '</td><td>' + p.qty + '</td><td>' + esc(p.desc) + '</td><td>' + this.fmtFtIn(p.oal) + '</td><td>' + p.wt.toFixed(0) + '</td><td>' + (p.wt * p.qty).toFixed(0) + '</td></tr>').join('');
     const nrows = nests.map(n => '<tr><td>' + esc(n.label) + '</td><td>' + n.pieces + '</td><td>' + (n.stickIn / 12) + '′</td><td class="big">' + n.sticks + '</td><td>' + Math.round(n.util * 100) + '%</td><td>' + this.fmtFtIn(n.drop) + (n.tooLong ? ' <span style="color:#D2402F;font-weight:700">⚠ PART LONGER THAN STICK</span>' : '') + '</td><td>' + n.wt.toFixed(0) + '</td></tr>').join('');
     return '<!DOCTYPE html><html><head><meta charset="utf-8"><title>JOB TICKET ' + esc(st.job || '') + '</title><style>' + this._ticketCss() + '</style></head><body>' +
       this._ticketTop('Job Cut List', 'JOB <b>' + esc(st.job || '—') + '</b><br>' + new Date().toLocaleDateString() + '<br>TRUE SIZE — KERF STAYS IN CAM') +
@@ -2091,7 +2302,7 @@ class Component extends DCLogic {
       '<h2>Pull list — stick nesting <span class="sub">EACH STICK KEEPS ' + esc(st.gripT) + '″ FOR THE CHUCK · ⅛″ KERF LOST BETWEEN PARTS</span></h2>' +
       '<table><tr><th>Profile · grade</th><th>Pcs</th><th>Stick</th><th>Sticks</th><th>Util</th><th>Drop (last stick)</th><th>Wt lb</th></tr>' + nrows + '</table>' +
       '<h2>Parts <span class="sub">SCAN ANY QR → PART BUILDER ▸ RECALL RELOADS THAT PART FOR ITS DXF / 3D / TICKET</span></h2>' +
-      '<table><tr><th>Recall</th><th>Mark</th><th>Qty</th><th>Description</th><th>Cut len</th><th>OAL</th><th>Wt ea</th><th>Wt tot</th></tr>' + rows + '</table>' +
+      '<table><tr><th>Recall</th><th>Mark</th><th>Qty</th><th>Description</th><th>Length overall</th><th>Wt ea</th><th>Wt tot</th></tr>' + rows + '</table>' +
       '<div class="sign"><div class="sig">Pulled by</div><div class="sig">Programmed</div><div class="sig">QC</div><div class="sig">Date</div></div>' +
       '<p class="k" style="margin-top:8px">True size — kerf stays in CAM. Print: Ctrl/Cmd+P</p>' +
       '</body></html>';
@@ -2116,6 +2327,13 @@ class Component extends DCLogic {
         if (!types.includes(ng.type)) ng.type = types[0];
         return ng;
       };
+      // A different shape starts with a clean hole list: holes laid out for one
+      // shape (clock degrees, flange gauge, leg gauge) do not carry over.
+      if (s.family !== f) this._framed = false;          // new shape: show the whole part again
+      // ...and with square ends: a miter, cope or bevel left over from the last
+      // shape is an easy thing to miss and a wasted piece if it is.
+      const sq = (e) => Object.assign({}, fix(e), { mode: 'sq', wantCope: false, wantBevel: false });
+      if (s.family !== f) return { family: f, mat, mark, lenMode: 'oal', ends: { A: sq(s.ends.A), B: sq(s.ends.B) }, wantHoles: false, gid: s.gid + 1, groups: [Component.newGroup(s.gid, f)] };
       return { family: f, mat, mark, ends: { A: fix(s.ends.A), B: fix(s.ends.B) }, groups: s.groups.map(fixG) };
     });
   }
@@ -2134,9 +2352,24 @@ class Component extends DCLogic {
     const famBtn = (f) => ({ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, padding: '10px 4px 8px', cursor: 'pointer', borderRadius: 4, border: '1px solid ' + (st.family === f ? '#1F3A5F' : '#D5DAE0'), background: st.family === f ? 'rgba(31,58,95,.08)' : '#FFFFFF', color: st.family === f ? '#1F3A5F' : '#47515C' });
     const kind = c.kind || this.famKind();
     const isRoundFam = kind === 'round';
-    const npsOpts = D ? Object.keys(D.PIPE_OD) : [], schedOpts = D ? D.PIPE_SCHEDS : [];
+    const npsOpts = D ? Object.keys(D.PIPE_OD).sort((a, b) => (this.parseIn(a) || 0) - (this.parseIn(b) || 0)) : [], schedOpts = D ? D.PIPE_SCHEDS : [];
     const fmtDeg = (x) => (Math.round(x * 10) / 10) + '\u00B0';
 
+    // Header size the user picked by hand is remembered (sdSet); until then a new
+    // saddle starts on a header the same size as the part - always a valid fit.
+    const setEndHdr = (id, k) => (e) => { const v = e.target.value; this.setState(s => ({ ends: Object.assign({}, s.ends, { [id]: Object.assign({}, s.ends[id], { [k]: v, sdSet: true }) }) })); };
+    const goSaddle = (id) => () => this.setState(s => {
+      const e0 = s.ends[id];
+      if (e0.mode === 'saddle') return null;
+      const ne = Object.assign({}, e0, { mode: 'saddle' });
+      if (s.family === 'pipe' && e0.sdHT !== 'cust' && D) {
+        const hod = D.PIPE_OD[e0.sdN] || 0, od = D.PIPE_OD[s.pnps] || 0;
+        if (!e0.sdSet || od > hod) { ne.sdN = s.pnps; if (D.PIPE_WALL[s.psch] && D.PIPE_WALL[s.psch][s.pnps]) ne.sdS = s.psch; }
+      }
+      return { ends: Object.assign({}, s.ends, { [id]: ne }) };
+    });
+    // compare what the two ends actually cut, not leftover values from another shape
+    const endsDiffer = (c.A && c.B && !c.invalid) ? this.endSpecText(c.A, c.sec) !== this.endSpecText(c.B, c.sec) : JSON.stringify(st.ends.A) !== JSON.stringify(st.ends.B);
     const endSteps = ['A', 'B'].map((id, i) => {
       const e = st.ends[id];
       const E = id === 'A' ? c.A : c.B;
@@ -2151,15 +2384,15 @@ class Component extends DCLogic {
         sum: E ? this.endSpecText(E, c.sec) : '\u2014', side2: id === 'A' ? 'LEFT' : 'RIGHT', car: st.step === n ? '\u25BE' : '\u25B8',
         open: st.step === n, goto: goto(n), back: goto(n - 1), next: goto(n + 1),
         nextLbl: id === 'A' ? 'Next — End B' : 'Next — Holes',
-        otherId: id === 'A' ? 'B' : 'A',
+        otherId: id === 'A' ? 'B' : 'A', sideTxt: id === 'A' ? 'left' : 'right', showMirror: id === 'B' && endsDiffer,
         mirror: () => this.setState(s => { const o = id === 'A' ? 'B' : 'A'; return { ends: Object.assign({}, s.ends, { [id]: JSON.parse(JSON.stringify(s.ends[o])) }) }; }),
         isRound: isRoundFam, notRound: !isRoundFam, isBeamFam: st.family === 'beam' || st.family === 'chan', isPlateFam: st.family === 'beam' || st.family === 'chan',
-        mSq: setEndV(id, 'mode', 'sq'), mMiter: setEndV(id, 'mode', 'miter'), mSaddle: setEndV(id, 'mode', 'saddle'),
+        mSq: setEndV(id, 'mode', 'sq'), mMiter: setEndV(id, 'mode', 'miter'), mSaddle: goSaddle(id),
         mSqS: pill(e.mode === 'sq'), mMiterS: pill(e.mode === 'miter'), mSaddleS: pill(e.mode === 'saddle'),
         isMiter: e.mode === 'miter', isSaddle: e.mode === 'saddle',
         maT: e.maT, mrT: e.mrT, sMa: setEnd(id, 'maT'), sMr: setEnd(id, 'mrT'),
         sdN: e.sdN, sdS: e.sdS, sdAT: e.sdAT, sdRT: e.sdRT,
-        sSdN: setEnd(id, 'sdN'), sSdS: setEnd(id, 'sdS'), sSdA: setEnd(id, 'sdAT'), sSdR: setEnd(id, 'sdRT'),
+        sSdN: setEndHdr(id, 'sdN'), sSdS: setEndHdr(id, 'sdS'), sSdA: setEnd(id, 'sdAT'), sSdR: setEnd(id, 'sdRT'),
         npsOpts, schedOpts,
         seatOn: setEndV(id, 'sdSeat', 'on'), seatThru: setEndV(id, 'sdSeat', 'thru'),
         seatOnS: pill(e.sdSeat === 'on'), seatThruS: pill(e.sdSeat !== 'on'),
@@ -2168,10 +2401,10 @@ class Component extends DCLogic {
         hdrPipeS: pill(e.sdHT !== 'cust'), hdrCustS: pill(e.sdHT === 'cust'),
         sdHodT: e.sdHodT, sdHwT: e.sdHwT, sSdHod: setEnd(id, 'sdHodT'), sSdHw: setEnd(id, 'sdHwT'),
         hasHole: !!hh,
-        holeDims: hh ? 'HDR HOLE ' + this.fmtIn(hh.along) + ' ALONG \u00D7 ' + this.fmtIn(hh.around) + ' AROUND \u00B7 ' + (e.sdSeat === 'on' ? 'HOLE = BRANCH ID' : 'HOLE = BRANCH OD') : '',
+        holeDims: hh ? 'Hole in header: ' + this.fmtIn(hh.along) + ' long \u00D7 ' + this.fmtIn(hh.around) + ' around' : '',
         dlHdrHole: () => { const t = this._headerHoleDxf(id); if (t) this._download(t, this.fileBase() + '_HDR-HOLE-' + id + '.dxf', 'application/dxf'); },
         sdChip: (E && E.sd) ? 'SEAT R ' + E.sd.Rs.toFixed(4) + '\u2033 (' + (E.sd.seat === 'on' ? 'HEADER OD/2' : 'HEADER ID/2') + ') \u00B7 HDR OD ' + E.sd.hod.toFixed(3) + ' / ID ' + E.sd.hid.toFixed(3) + ' \u00B7 SQUARE RADIAL CUT' : '',
-        angNo: setEndV(id, 'mode', 'sq'), angYes: setEndV(id, 'mode', 'ang'),
+        angNo: setEndV(id, 'mode', 'sq'), angYes: () => this.setState(s => { const e0 = s.ends[id], flat = !(parseFloat(e0.tpT) || 0) && !(parseFloat(e0.tvT) || 0); return { ends: Object.assign({}, s.ends, { [id]: Object.assign({}, e0, { mode: 'ang' }, flat ? { tvT: '45' } : null) }) }; }),
         angNoS: pill(e.mode !== 'ang'), angYesS: pill(e.mode === 'ang'),
         angled: e.mode === 'ang',
         tpT: e.tpT, tvT: e.tvT, sTp: setEnd(id, 'tpT'), sTv: setEnd(id, 'tvT'),
@@ -2180,7 +2413,8 @@ class Component extends DCLogic {
         bvT: e.bvT, landT: e.landT, open2: e.open, app: e.app,
         sBv: setEnd(id, 'bvT'), sLand: setEnd(id, 'landT'), sOpen: setEnd(id, 'open'), sApp: setEnd(id, 'app'),
         wantCope: e.wantCope, copYes: setEndV(id, 'wantCope', true), copNo: setEndV(id, 'wantCope', false),
-        copYesS: pill(e.wantCope), copNoS: pill(!e.wantCope),
+        copYesS: pill(e.wantCope), copNoS: pill(!e.wantCope), tgCope: tgEnd(id, 'wantCope'), copeS: pill(e.wantCope),
+        showRO2: isRoundFam && id === 'B',
         tgTop: tgEnd(id, 'ct'), tgBot: tgEnd(id, 'cb'), topBtn: copeBtn(e.ct), botBtn: copeBtn(e.cb),
         tcT: e.tcT, tdT: e.tdT, trT: e.trT, bcT: e.bcT, bdT: e.bdT, brT: e.brT,
         sTc: setEnd(id, 'tcT'), sTd: setEnd(id, 'tdT'), sTr: setEnd(id, 'trT'), sBc: setEnd(id, 'bcT'), sBd: setEnd(id, 'bdT'), sBr: setEnd(id, 'brT'),
@@ -2215,11 +2449,11 @@ class Component extends DCLogic {
         sBnps: setG(g.id, 'bnps'), sBsch: setG(g.id, 'bsch'), sSll: setG(g.id, 'sllT'),
         bnpsOpts: npsOpts, bschOpts: schedOpts,
         isBoltMat, isRoundMat: isRoundFam, isHssMat: st.family === 'hss',
-        isOlet: isRoundFam && g.type === 'olet',
-        showDia: g.type === 'cust' || (st.family === 'hss' && (g.type === 'cust' || g.type === 'slot')),
+        isOlet: isRoundFam && g.type === 'olet', isBranch: isRoundFam && g.type !== 'cust', isRoundCust: isRoundFam && g.type === 'cust', notRound: !isRoundFam,
+        showDia: !isRoundFam && st.family !== 'hss' && g.type === 'cust',
         diaLbl: st.family === 'hss' && g.type === 'slot' ? 'Slot width' : 'Hole Ø',
         isHssSlot: st.family === 'hss' && g.type === 'slot',
-        diaEcho: 'HOLE Ø ' + this.fr16(dia) + '″ (' + dia.toFixed(3) + '″) · SQUARE CUT — BEVEL IN CAM / GRIND AT FIT-UP',
+        diaEcho: 'Hole Ø ' + this.fr16(dia) + '″ (' + dia.toFixed(3) + '″)',
         x0T: g.x0T, pT: g.pT, nT: g.nT, azT: g.azT, aznT: g.aznT, azpT: g.azpT, offT: g.offT,
         wref: g.wref, y0T: g.y0T, nyT: g.nyT, pyT: g.pyT, amode: g.amode, gT: g.gT, diaT: g.diaT,
         xsT: g.xsT || '', sXs: setG(g.id, 'xsT'),
@@ -2233,13 +2467,37 @@ class Component extends DCLogic {
         isRound: isRoundFam, isBoxFace: st.family === 'hss', isWeb: (st.family === 'beam' || st.family === 'chan') && g.face === 'web', isFlg: (st.family === 'beam' || st.family === 'chan') && g.face !== 'web', isLeg: st.family === 'angl',
         isSlot: g.type === 'ssl' || g.type === 'lsl' || g.type === 'slot', isCust: g.type === 'cust',
         gaugeLabel: c.sec.chan ? 'One line, gauge from back' : 'Two lines, centered',
-        gLbl: st.family === 'angl' ? 'Gauge from heel' : g.amode === 'gauge' ? (c.sec.chan ? 'From back' : 'Gauge') : 'Offset',
+        gLbl: st.family === 'angl' ? 'Gauge from heel' : g.amode === 'gauge' ? (c.sec.chan ? 'Gauge \u2014 from back of channel' : 'Gauge \u2014 between the two hole lines') : 'Offset from flange center',
+        y0Lbl: g.wref === 'cl' ? 'First row, below center' : g.wref === 'bos' ? 'First row, up from bottom' : 'First row, down from top',
         chip: '\u2192 ' + nOKg + (nAll !== nOKg ? '/' + nAll : '') + ' \u00D7 \u00D8' + this.fr16(dia),
         sFace: setG(g.id, 'face'), sBolt: setG(g.id, 'bolt'), sType: setG(g.id, 'type'), sRef: setG(g.id, 'refEnd'), sAx: setG(g.id, 'ax'),
         sX0: setG(g.id, 'x0T'), sP: setG(g.id, 'pT'), sN: setG(g.id, 'nT'),
         sAz: setG(g.id, 'azT'), sAzn: setG(g.id, 'aznT'), sAzp: setG(g.id, 'azpT'), sOff: setG(g.id, 'offT'),
         sWref: setG(g.id, 'wref'), sY0: setG(g.id, 'y0T'), sNy: setG(g.id, 'nyT'), sPy: setG(g.id, 'pyT'), sAmode: setG(g.id, 'amode'), sG: setG(g.id, 'gT'), sDia: setG(g.id, 'diaT'),
         hasFaces: faceOptsFor.length > 1,
+        endSel2: g.both && !String(g.xsT || '').trim() ? 'AB' : g.refEnd,
+        sEndSel2: (e) => { const v = e.target.value; patchG(g.id, v === 'AB' ? { both: true, refEnd: 'A', xsT: '' } : { both: false, refEnd: v })(); },
+        ...(() => {
+          const plate = st.family === 'beam' || st.family === 'chan';
+          if (!plate) return { isPlateG: false, notPlateG: true };
+          const web = g.face === 'web', std = web ? null : this.stdGauge(g), dd = (c.sec && c.sec.d) || 0;
+          const ny = Math.max(1, Math.round(parseFloat(g.nyT) || 1)), py = this.parseIn(g.pyT) ?? 3;
+          const fb = (l, on, patch) => ({ l, s: pill(on), go: patchG(g.id, patch) });
+          return {
+            isPlateG: true, notPlateG: false,
+            faceBtns: [fb('Web', web, { face: 'web', bothF: false }), fb('Top flange', g.face === 'tf' && !g.bothF, { face: 'tf', bothF: false }), fb('Bottom flange', g.face === 'bf' && !g.bothF, { face: 'bf', bothF: false }), fb('Both flanges', !web && !!g.bothF, { face: 'tf', bothF: true })],
+            endSel: g.both ? 'AB' : g.refEnd,
+            sEndSel: (e) => { const v = e.target.value; patchG(g.id, v === 'AB' ? { both: true, refEnd: 'A', xsT: '' } : { both: false, refEnd: v })(); },
+            showAutoY: web && dd > 0, autoYS: pill(!!g.autoY),
+            tgAutoY: patchG(g.id, g.autoY ? { autoY: false, wref: 'tos', y0T: this.fmtTok((dd - (ny - 1) * py) / 2) } : { autoY: true }),
+            manualY: web && !g.autoY,
+            showAutoG: !web && std != null, autoGS: pill(!!g.autoG),
+            autoGLbl: 'Standard gauge' + (std != null ? ' ' + this.fmtTok(std) + '\u2033' : ''),
+            tgAutoG: patchG(g.id, g.autoG ? { autoG: false, amode: 'gauge', gT: std != null ? this.fmtTok(std) : g.gT } : { autoG: true }),
+            manualG: !web && !(g.autoG && std != null),
+            downLbl: st.family === 'chan' ? 'Down the web' : 'Down the web'
+          };
+        })(),
         clocks: !isRoundFam ? [] : (() => {
           const azv = ((parseFloat(g.azT) || 0) % 360 + 360) % 360, aznV = Math.round(parseFloat(g.aznT) || 1), azpV = parseFloat(g.azpT) || 0;
           const bs = (on) => 'flex:none;padding:7px 10px;cursor:pointer;border-radius:999px;font:600 12px/1 var(--font-mono);' + (on ? 'border:1px solid var(--hivis);background:rgba(31,58,95,.08);color:var(--hivis)' : 'border:1px solid var(--steel-600);background:transparent;color:var(--fg-2)');
@@ -2258,34 +2516,31 @@ class Component extends DCLogic {
         setStdG: () => { const v = this.stdGauge(g); if (v != null) this.setState(s => ({ groups: s.groups.map(x => x.id === g.id ? Object.assign({}, x, { gT: this.fmtTok(v), amode: 'gauge' }) : x) })); },
         canCopyOpp: ['tf', 'bf', 'T', 'B', 'L', 'R'].includes(g.face),
         copyOpp: () => this.setState(s => ({ gid: s.gid + 1, groups: s.groups.concat([Object.assign({}, g, { id: s.gid, face: { tf: 'bf', bf: 'tf', T: 'B', B: 'T', L: 'R', R: 'L' }[g.face] })]) })),
-        del: () => this.setState(s => ({ groups: s.groups.filter(x => x.id !== g.id) }))
+        del: () => this.setState(s => s.groups.length > 1 ? { groups: s.groups.filter(x => x.id !== g.id) } : { wantHoles: false, gid: s.gid + 1, groups: [Component.newGroup(s.gid, s.family)] })
       };
     });
 
     const quicksFor = {
       round: [
-        { l: 'Straight cut', f: () => this.setState(s => ({ step: 5, ends: { A: Object.assign({}, s.ends.A, { mode: 'sq' }), B: Object.assign({}, s.ends.B, { mode: 'sq' }) } })) },
-        { l: '45° miter @ B', f: () => this.setState(s => ({ step: 3, ends: { A: Object.assign({}, s.ends.A, { mode: 'sq' }), B: Object.assign({}, s.ends.B, { mode: 'miter', maT: '45', mrT: '0' }) } })) },
-        { l: 'Tee saddle @ A', f: () => this.setState(s => ({ step: 2, ends: { A: Object.assign({}, s.ends.A, { mode: 'saddle', sdAT: '90' }), B: Object.assign({}, s.ends.B, { mode: 'sq' }) } })) },
-        { l: 'Lateral 45 @ A', f: () => this.setState(s => ({ step: 2, ends: { A: Object.assign({}, s.ends.A, { mode: 'saddle', sdAT: '45' }), B: Object.assign({}, s.ends.B, { mode: 'sq' }) } })) }
+        { l: 'Square both ends', f: () => this.setState(s => ({ step: 5, ends: { A: Object.assign({}, s.ends.A, { mode: 'sq' }), B: Object.assign({}, s.ends.B, { mode: 'sq' }) } })) },
+        { l: 'Miter one end', f: () => this.setState(s => ({ step: 3, ends: { A: Object.assign({}, s.ends.A, { mode: 'sq' }), B: Object.assign({}, s.ends.B, { mode: 'miter', maT: '45', mrT: '0' }) } })) },
+        { l: 'Saddle one end', f: () => this.setState(s => ({ step: 2, ends: { A: Object.assign({}, s.ends.A, { mode: 'saddle', sdAT: '90' }), B: Object.assign({}, s.ends.B, { mode: 'sq' }) } })) },
+        { l: 'Saddle both ends', f: () => this.setState(s => ({ step: 2, ends: { A: Object.assign({}, s.ends.A, { mode: 'saddle', sdAT: '90' }), B: Object.assign({}, s.ends.B, { mode: 'saddle', sdAT: '90' }) } })) }
       ],
       box: [
-        { l: 'Straight cut', f: () => this.setState(s => ({ step: 5, ends: { A: Object.assign({}, s.ends.A, { mode: 'sq' }), B: Object.assign({}, s.ends.B, { mode: 'sq' }) } })) },
-        { l: '45° miter @ B', f: () => this.setState(s => ({ step: 3, ends: { A: Object.assign({}, s.ends.A, { mode: 'sq' }), B: Object.assign({}, s.ends.B, { mode: 'ang', tpT: '0', tvT: '45' }) } })) },
-        { l: 'Picture frame', f: () => this.setState(s => ({ step: 2, ends: { A: Object.assign({}, s.ends.A, { mode: 'ang', tpT: '0', tvT: '45' }), B: Object.assign({}, s.ends.B, { mode: 'ang', tpT: '0', tvT: '45' }) } })) }
+        { l: 'Square both ends', f: () => this.setState(s => ({ step: 5, ends: { A: Object.assign({}, s.ends.A, { mode: 'sq' }), B: Object.assign({}, s.ends.B, { mode: 'sq' }) } })) },
+        { l: 'Miter one end', f: () => this.setState(s => ({ step: 3, ends: { A: Object.assign({}, s.ends.A, { mode: 'sq' }), B: Object.assign({}, s.ends.B, { mode: 'ang', tpT: '0', tvT: '45' }) } })) },
+        { l: 'Miter both ends (frame)', f: () => this.setState(s => ({ step: 2, ends: { A: Object.assign({}, s.ends.A, { mode: 'ang', tpT: '0', tvT: '45' }), B: Object.assign({}, s.ends.B, { mode: 'ang', tpT: '0', tvT: '45' }) } })) }
       ],
       plate: [
-        { l: 'Straight drop', f: () => this.setState(s => ({ step: 5, wantHoles: s.wantHoles, ends: { A: Object.assign({}, s.ends.A, { mode: 'sq', wantBevel: false, wantCope: false, rat: 'NONE' }), B: Object.assign({}, s.ends.B, { mode: 'sq', wantBevel: false, wantCope: false, rat: 'NONE' }) } })) },
-        { l: 'Clip angle @ A', f: () => this.setState(s => ({ step: 4, wantHoles: true, gid: s.gid + 1,
-          ends: { A: Object.assign({}, s.ends.A, { mode: 'sq', wantCope: true, ct: true, cb: false, tcT: '4', tdT: '1 1/2', trT: '1/2', rat: 'BOT', rrT: '3/4' }), B: Object.assign({}, s.ends.B, { mode: 'sq' }) },
-          groups: [Object.assign(Component.defGroup(s.gid, s.family), { face: 'web', bolt: '3/4', type: 'std', x0T: '3', pT: '3', nT: '3', wref: 'tos', y0T: '3', nyT: '2', pyT: '3' })] })) },
-        { l: 'Std cope @ A', f: () => this.setState(s => ({ step: 2, ends: { A: Object.assign({}, s.ends.A, { mode: 'sq', wantCope: true, ct: true, cb: false, tcT: '4', tdT: '1 1/2', trT: '1/2', rat: 'BOT', rrT: '3/4' }), B: Object.assign({}, s.ends.B, { mode: 'sq' }) } })) },
-        { l: '45° miter @ B', f: () => this.setState(s => ({ step: 3, ends: { A: Object.assign({}, s.ends.A, { mode: 'sq' }), B: Object.assign({}, s.ends.B, { mode: 'ang', tpT: '45', tvT: '0' }) } })) },
-        { l: 'Coped both ends', f: () => this.setState(s => ({ step: 2, ends: { A: Object.assign({}, s.ends.A, { mode: 'sq', wantCope: true, ct: true, cb: false }), B: Object.assign({}, s.ends.B, { mode: 'sq', wantCope: true, ct: true, cb: false }) } })) }
+        { l: 'Square both ends', f: () => this.setState(s => ({ step: 5, ends: { A: Object.assign({}, s.ends.A, { mode: 'sq', wantCope: false, rat: 'NONE' }), B: Object.assign({}, s.ends.B, { mode: 'sq', wantCope: false, rat: 'NONE' }) } })) },
+        { l: 'Cope one end', f: () => this.setState(s => ({ step: 2, ends: { A: Object.assign({}, s.ends.A, { mode: 'sq', wantCope: true, ct: true, cb: false, tcT: '4', tdT: '1 1/2', trT: '1/2', rat: 'NONE' }), B: Object.assign({}, s.ends.B, { mode: 'sq', wantCope: false, rat: 'NONE' }) } })) },
+        { l: 'Cope both ends', f: () => this.setState(s => ({ step: 2, ends: { A: Object.assign({}, s.ends.A, { mode: 'sq', wantCope: true, ct: true, cb: false, tcT: '4', tdT: '1 1/2', trT: '1/2', rat: 'NONE' }), B: Object.assign({}, s.ends.B, { mode: 'sq', wantCope: true, ct: true, cb: false, tcT: '4', tdT: '1 1/2', trT: '1/2', rat: 'NONE' }) } })) },
+        { l: 'Miter one end', f: () => this.setState(s => ({ step: 3, ends: { A: Object.assign({}, s.ends.A, { mode: 'sq', wantCope: false, rat: 'NONE' }), B: Object.assign({}, s.ends.B, { mode: 'ang', tpT: '45', tvT: '0', wantCope: false }) } })) }
       ],
       angl: [
-        { l: 'Straight cut', f: () => this.setState(s => ({ step: 5, ends: { A: Object.assign({}, s.ends.A, { mode: 'sq' }), B: Object.assign({}, s.ends.B, { mode: 'sq' }) } })) },
-        { l: '45° miter @ B', f: () => this.setState(s => ({ step: 3, ends: { A: Object.assign({}, s.ends.A, { mode: 'sq' }), B: Object.assign({}, s.ends.B, { mode: 'ang', tpT: '45', tvT: '0' }) } })) }
+        { l: 'Square both ends', f: () => this.setState(s => ({ step: 5, ends: { A: Object.assign({}, s.ends.A, { mode: 'sq' }), B: Object.assign({}, s.ends.B, { mode: 'sq' }) } })) },
+        { l: 'Miter one end', f: () => this.setState(s => ({ step: 3, ends: { A: Object.assign({}, s.ends.A, { mode: 'sq' }), B: Object.assign({}, s.ends.B, { mode: 'ang', tpT: '45', tvT: '0' }) } })) }
       ]
     };
     const quicks = (quicksFor[kind] || quicksFor.plate).map(q => ({ l: q.l, go: q.f }));
@@ -2305,17 +2560,27 @@ class Component extends DCLogic {
     const hhB = c.kind === 'round' && c.B && c.B.mode === 'saddle' ? this.headerHole(c.B, c.sec) : null;
 
     const jobParts = st.parts.map(pt => ({
-      id: pt.id, mark: pt.mark, desc: pt.desc, len: pt.lenT2, qtyT: '\u00D7' + pt.qty, wt: Math.round(pt.wt * pt.qty) + ' LB', code: pt.code,
-      load: () => { const cfg = this.cfgFromPart(pt); if (cfg) this.setState(Object.assign({ step: 5 }, cfg)); },
+      id: pt.id, mark: pt.mark, desc: pt.desc, len: pt.lenT2, qtyT: '\u00D7' + pt.qty, qty: pt.qty, wt: Math.round(pt.wt * pt.qty) + ' LB', code: pt.code,
+      cardS: pt.id === st.editId ? { borderColor: '#1F3A5F', boxShadow: 'inset 3px 0 0 #1F3A5F' } : {},
+      openLbl: pt.id === st.editId ? 'Editing\u2026' : 'Open to edit',
+      sQty: (e) => { const q = Math.max(1, Math.round(+e.target.value || 1)); this.setState(s => ({ parts: s.parts.map(x => x.id === pt.id ? Object.assign({}, x, { qty: q }) : x), qty: s.editId === pt.id ? q : s.qty })); },
+      load: () => { const cfg0 = this.cfgFromPart(pt); if (!cfg0) return; const cfg = this.forForm(cfg0); this.setState(s => Object.assign({ step: 5 }, cfg, { editId: pt.id, markStash: s.editId != null ? s.markStash : s.mark })); },
       dup: () => this.setState(s => ({ parts: s.parts.concat([Object.assign({}, pt, { id: Date.now() + Math.random(), code: this.newCode() })]) })),
-      del: () => this.setState(s => ({ parts: s.parts.filter(x => x.id !== pt.id) }))
+      del: () => this.setState(s => ({ parts: s.parts.filter(x => x.id !== pt.id), editId: s.editId === pt.id ? null : s.editId }))
     }));
+    const editPt = st.editId != null ? st.parts.find(x => x.id === st.editId) : null;
+    const errList = c.warns.filter(w => w.lvl === 'err');
+    // "One wall only" is how every tube-laser hole works, not a problem with this part: it is a hint under Holes.
+    const cautionList = c.warns.filter(w => w.lvl !== 'err' && !/ONE wall/.test(w.t) && !/^Loading/.test(w.t));
+    const oneWall = c.warns.some(w => /ONE wall/.test(w.t));
+    const bevOn = ['A', 'B'].filter(k => st.ends[k].wantBevel);
+    const matShort = { A36: 'A36', A992: 'A992', 'A572-50': 'A572-50', A500B: 'A500-B', A53B: 'A53-B', A106B: 'A106-B', A588: 'A588', '304L': '304L SS', '316L': '316L SS', AL6061: '6061 alum' };
 
     return {
       stepN: st.step,
       stepName: ['THE STOCK', 'END A \u00B7 LEFT', 'END B \u00B7 RIGHT', 'HOLES', 'REVIEW & CUT'][st.step - 1] || '',
       progS: { height: 3, width: (st.step / 5 * 100) + '%', background: '#1F3A5F', borderRadius: 2, transition: 'width .18s cubic-bezier(.2,.7,.3,1)' },
-      chip: (st.mark ? st.mark + ' \u00B7 ' : '') + c.sec.label + ' \u00D7 ' + (Lok ? this.fmtFtIn(c.L) : '?'),
+      chip: (st.mark ? st.mark + ' \u00B7 ' : '') + c.sec.label + ' \u00D7 ' + (Lok ? this.fmtFtIn(c.OAL || c.L) : '?'),
       topChip: this.famLabel() + ' \u00B7 ' + c.sec.label + ' \u00B7 ' + this.matRec().label + ' \u00B7 ' + (Lok ? this.fmtFtIn(c.L) : '?'),
       tgJob: () => this.setState(s => ({ jobOpen: !s.jobOpen })),
       jobCount: String(totPieces),
@@ -2327,10 +2592,31 @@ class Component extends DCLogic {
       closeHelp: () => { try { localStorage.setItem('spf_pb_help_seen', '1'); } catch (e) {} this.setState({ help: false }); },
       helpBtnS: { flex: 'none', cursor: 'pointer', borderRadius: 4, border: '1px solid ' + (st.help ? '#1F3A5F' : '#C9CFD6'), background: st.help ? 'rgba(31,58,95,.08)' : 'transparent', color: st.help ? '#1F3A5F' : '#47515C', font: '700 12px/1 Barlow, sans-serif', letterSpacing: '.02em', padding: '9px 12px' },
       showEndTags: !st.spin,
-      n1T: st.step > 1 ? '\u2713' : '1', n1S: numS(1), n4T: st.step > 4 ? '\u2713' : '4', n4S: numS(4), n5T: '5', n5S: numS(5),
+      n1T: st.step > 1 ? '\u2713' : '1', n1S: numS(1), n4T: st.step > 4 ? '\u2713' : '3', n4S: numS(4), n5T: '4', n5S: numS(5),
+      endsOpen: st.step === 2 || st.step === 3, gotoEnds: goto(2),
+      nEndsT: st.step > 3 ? '\u2713' : '2', nEndsS: Object.assign(numS(st.step === 3 ? 3 : 2)),
+      carEnds: st.step === 2 || st.step === 3 ? '\u25BE' : '\u25B8',
+      sumEnds: 'A ' + endSteps[0].sum + ' \u00B7 B ' + endSteps[1].sum,
+      showLenMode: st.lenMode === 'oal' || st.ends.A.mode !== 'sq' || st.ends.B.mode !== 'sq',
+      hasErr: errN > 0, errIssues: errList.map(w => ({ t: w.t })),
+      hasCaution: errN === 0 && cautionList.length > 0, cautions: cautionList.map(w => ({ t: w.t })),
+      oneWall,
+      bevSum: 'Weld bevel' + (bevOn.length ? ' \u2014 on End ' + bevOn.join(' and ') : '') + (isRoundFam ? ' \u00B7 rolling offset' : ''),
+      editing: !!editPt, notEditing: !editPt,
+      editNote: editPt ? 'Editing ' + editPt.mark + ' from the job list' : '',
+      addLbl: editPt ? 'Save changes to ' + editPt.mark : '+ Add to job list',
+      addAsNew: () => this.addToJob(true),
+      cancelEdit: () => this.setState(s => ({ editId: null, markStash: null, mark: s.markStash || s.mark })),
+      viewA: () => this.viewEnd('A'), viewB: () => this.viewEnd('B'),
+      dlJobFiles: () => this.dlJobFiles(),
+      jobFilesLbl: st.jobBusy || 'Download all laser files',
+      jobBusy: !!st.jobBusy || !!st.solidBusy || st.parts.length === 0,
+      holeBtnLbl: st.wantHoles ? '+ Add another hole' : '+ Add a hole',
+      holeHint: (oneWall ? 'Each hole goes through one wall. ' : '') + 'Click the flat drawing to add a hole, drag it to move it.',
+      addHole: () => this.setState(s => s.wantHoles ? { gid: s.gid + 1, groups: s.groups.concat([Component.newGroup(s.gid, s.family)]) } : { wantHoles: true }),
       open1: st.step === 1, open4: st.step === 4, open5: st.step === 5,
       sum1: this.famLabel() + ' \u00B7 ' + c.sec.label + ' \u00D7 ' + (Lok ? this.fmtFtIn(c.L) : '?'),
-      sum4: st.wantHoles ? nOK + ' holes' : 'none',
+      sum4: st.wantHoles ? nOK + (nOK === 1 ? ' hole' : ' holes') : 'none',
       sum5: c.invalid ? 'fix issues first' : (c.warns.length ? c.warns.length + ' flag(s) \u00B7 ' : '') + c.wt.toFixed(0) + ' lb \u00B7 add to job',
       ctaSub: (st.mark ? st.mark + ' \u00B7 ' : '') + c.sec.label + (c.invalid ? ' \u00B7 fix issues first' : ' \u00B7 job \u00B7 DXF \u00B7 3D \u00B7 ticket'),
       pickPipe: this.pickFam('pipe'), pickTube: this.pickFam('tube'), pickHss: this.pickFam('hss'), pickBeam: this.pickFam('beam'), pickChan: this.pickFam('chan'), pickAngl: this.pickFam('angl'),
@@ -2354,17 +2640,20 @@ class Component extends DCLogic {
       stockEcho: c.sec.label + ' \u00B7 ' + (c.sec.kind === 'round' ? 'OD ' + c.sec.od.toFixed(3) + '\u2033 \u00D7 WALL ' + c.sec.t.toFixed(3) + '\u2033 \u00B7 ID ' + (2 * c.sec.ri).toFixed(3) + '\u2033' : c.sec.kind === 'box' ? c.sec.H + '\u2033 TALL \u00D7 ' + c.sec.B + '\u2033 WIDE \u00D7 ' + c.sec.t.toFixed(3) + '\u2033 \u00B7 CR ' + c.sec.rc.toFixed(2) + '\u2033' : c.sec.kind === 'angl' ? c.sec.a + '\u2033 VERT \u00D7 ' + c.sec.b + '\u2033 HORIZ \u00D7 ' + c.sec.t.toFixed(3) + '\u2033' : 'd ' + c.sec.d + '\u2033 \u00D7 bf ' + c.sec.bf + '\u2033 \u00B7 tf ' + c.sec.tf + '\u2033 / tw ' + c.sec.tw + '\u2033') + ' \u00B7 ' + (Math.round(c.sec.wtFt * 100) / 100) + ' LB/FT',
       quicks,
       lenT: st.lenT, onLen: setS('lenT'),
-      lenEcho: Lok ? (st.lenMode === 'oal' ? 'CL ' + this.fmtFtIn(c.L) + ' \u00B7 LP ' + this.fmtFtIn(c.LP) : this.fmtFtIn(c.L) + '  (' + c.L.toFixed(3) + '\u2033)') : 'CAN\u2019T READ',
+      lenEcho: Lok ? this.fmtFtIn(this.parseIn(st.lenT)) + '  (' + this.parseIn(st.lenT).toFixed(3) + '\u2033)' : 'CAN\u2019T READ',
+      // what the typed length means, said only when the ends make it a question
+      lenNote: c.invalid || Math.abs(c.LP - c.SP) <= 1 / 64 ? '' : st.lenMode === 'oal' ? 'End to end, longest point to longest point. Hole distances start from the same ends.' : 'Older part: this length and its hole distances are center to center. Build it again as a new part to use end-to-end lengths.',
+      hasLenNote: !c.invalid && Math.abs(c.LP - c.SP) > 1 / 64,
       lenEchoStyle: { color: Lok ? '#1F3A5F' : '#B3261E', font: '700 12px/1.5 JetBrains Mono, monospace' },
       lenHint: st.lenMode === 'oal' ? 'LONG POINT off the tape \u2014 CL solves itself' : (c.kind === 'round' && ((c.A && c.A.mode === 'saddle') || (c.B && c.B.mode === 'saddle')) ? 'saddle end WP = header centerline' : 'work point to work point'),
-      mat: st.mat, onMat: setS('mat'), matOpts: D ? D.MATERIALS : [],
+      mat: st.mat, onMat: setS('mat'), matOpts: D ? D.MATERIALS.map(m2 => ({ id: m2.id, label: matShort[m2.id] || m2.label })) : [],
       mark: st.mark, onMark: setS('mark'),
       endSteps, groups,
       wantHoles: st.wantHoles,
       noHoles: !st.wantHoles,
       holesYes: () => this.setState({ wantHoles: true }), holesNo: () => this.setState({ wantHoles: false }),
       holesYesS: pill(st.wantHoles), holesNoS: pill(!st.wantHoles),
-      addGroup: () => this.setState(s => ({ gid: s.gid + 1, groups: s.groups.concat([Component.defGroup(s.gid, s.family)]) })),
+      addGroup: () => this.setState(s => ({ gid: s.gid + 1, groups: s.groups.concat([Component.newGroup(s.gid, s.family)]) })),
       onBand: (e) => {
         if (this._dragMoved) { this._dragMoved = false; this._drag = null; return; } // a drag just ended — not a click
         this._drag = null;
@@ -2383,7 +2672,7 @@ class Component extends DCLogic {
         return dd;
       })() : '',
       recipes: (() => {
-        const Lr = (!c.invalid && c.L > 0) ? c.L : 120;
+        const Lr = (!c.invalid && c.L > 0) ? c.x1 - c.x0 : 120;
         const addR = (ps) => () => this.setState(s => {
           let gi = s.gid;
           const gs = ps.map(p => Object.assign(Component.defGroup(gi++, s.family), p));
@@ -2395,36 +2684,46 @@ class Component extends DCLogic {
         const dSec = (c.sec && c.sec.d) || 12;
         const gStd = (face) => { const v = this.stdGauge({ face }); return v != null ? this.fmtTok(v) : null; };
         if (isRoundFam) return [
-          { l: 'Outlets @ 12:00 — every 12″', tip: 'Manifold header: branch bores spread down the top, centered on the cut length. Change size, spacing or count on the group after.', go: addR([Object.assign({ type: 'olet', bnps: brFor('2'), azT: '0', aznT: '1' }, spreadR(12, 6))]) },
-          { l: 'Drain @ 5:00', tip: 'One bore low, 3″ off end B, for a drain coupling. 6:00 dead-bottom is the program seam so it sits at 5:00 — roll at fit-up.', go: addR([{ type: 'olet', bnps: brFor('1'), refEnd: 'B', x0T: '3', nT: '1', xsT: '', azT: '150', aznT: '1' }]) },
-          { l: 'Vent @ 12:00', tip: 'One bore on top, 3″ off end A, for a vent coupling.', go: addR([{ type: 'olet', bnps: brFor('1'), refEnd: 'A', x0T: '3', nT: '1', xsT: '', azT: '0', aznT: '1' }]) },
-          { l: 'Gauge ports @ 3:00 + 9:00', tip: 'Instrument taps both sides at mid-length.', go: addR([Object.assign({ type: 'olet', bnps: brFor('1'), azT: '90', aznT: '2', azpT: '180' }, midR)]) },
-          { l: 'Sparger — Ø3/8 down both sides', tip: 'Distribution holes every 4″ at 4:30 + 7:30 (clear of the 6:00 seam), centered on length.', go: addR([Object.assign({ type: 'cust', diaT: '3/8', azT: '135', aznT: '2', azpT: '90' }, spreadR(4, 3))]) },
-          { l: 'Ring of 4', tip: '4 holes around the pipe at mid-length, clocked 45° off top so none land on the seam.', go: addR([Object.assign({ azT: '45', aznT: '4', azpT: '90' }, midR)]) }];
-        if (st.family === 'hss') return [
-          { l: 'Thru-bolts @ each end', tip: 'Ø9/16 (1/2″ bolt) through the TOP face, 1 1/2″ off each end. Tap COPY → OPP FACE on a group to bolt clean through.', go: addR([{ face: 'T', type: 'cust', diaT: '9/16', refEnd: 'A', x0T: '1 1/2', nT: '1', xsT: '' }, { face: 'T', type: 'cust', diaT: '9/16', refEnd: 'B', x0T: '1 1/2', nT: '1', xsT: '' }]) },
-          { l: 'Weeps @ ends — bottom', tip: 'Ø3/8 drain weeps on the BOTTOM face, 1″ off each end — galvanized or outdoor posts.', go: addR([{ face: 'B', type: 'cust', diaT: '3/8', refEnd: 'A', x0T: '1', nT: '1', xsT: '' }, { face: 'B', type: 'cust', diaT: '3/8', refEnd: 'B', x0T: '1', nT: '1', xsT: '' }]) },
-          { l: 'Tab slots @ each end', tip: '9/16 × 1 1/2″ slots along the length, 2″ off each end — connection tabs slide in.', go: addR([{ face: 'T', type: 'slot', diaT: '9/16', sllT: '1 1/2', ax: 'x', refEnd: 'A', x0T: '2', nT: '1', xsT: '' }, { face: 'T', type: 'slot', diaT: '9/16', sllT: '1 1/2', ax: 'x', refEnd: 'B', x0T: '2', nT: '1', xsT: '' }]) },
-          { l: 'Every 12″ centered', tip: 'Ø9/16 down the top face every 12″, centered on length.', go: addR([Object.assign({ face: 'T', type: 'cust', diaT: '9/16' }, spreadR(12, 6))]) }];
-        if (st.family === 'beam') { const y0c = this.fmtTok((dSec - 3) / 2); return [
-          { l: '4-bolt — web (2×2)', tip: '2×2 bolt group through the web, auto-centered across the depth. Slide it along the beam with FIRST HOLE; PITCH = bolt-to-bolt along, ROW SPACING = bolt-to-bolt across. 3/4″ bolts.', go: addR([{ face: 'web', bolt: '3/4', type: 'std', refEnd: 'A', x0T: '3', pT: '3', nT: '2', xsT: '', wref: 'tos', nyT: '2', pyT: '3', y0T: y0c }]) },
-          { l: '4-bolt — flange (2×2)', tip: '2×2 on the top flange: two lines at the gauge (centered across the flange), two bolts along at PITCH. Slide with FIRST HOLE; change GAUGE for across-spacing. 3/4″ bolts.', go: addR([{ face: 'tf', bolt: '3/4', type: 'std', amode: 'gauge', gT: gStd('tf') || '5 1/2', refEnd: 'A', x0T: '3', pT: '3', nT: '2', xsT: '' }]) },
-          { l: 'End clips — web', tip: 'Double-angle connection: one bolt line 2 1/4″ in from each end, 2 rows @ 3″ centered on the web. 3/4″ bolts, STD holes.', go: addR([{ face: 'web', bolt: '3/4', type: 'std', refEnd: 'A', x0T: '2 1/4', nT: '1', xsT: '', wref: 'tos', nyT: '2', pyT: '3', y0T: y0c }, { face: 'web', bolt: '3/4', type: 'std', refEnd: 'B', x0T: '2 1/4', nT: '1', xsT: '', wref: 'tos', nyT: '2', pyT: '3', y0T: y0c }]) },
-          { l: 'Top flange @ std gauge — every 12″', tip: 'Two hole lines at the AISC workable gauge, holes every 12″ centered — grating, decking, cap plates.', go: addR([Object.assign({ face: 'tf', bolt: '3/4', type: 'std', amode: 'gauge', gT: gStd('tf') || '5 1/2' }, spreadR(12, 6))]) },
-          { l: 'Web CL — 1 @ each end', tip: 'Single hole on the web centerline 3″ off each end — hanging / erection holes.', go: addR([{ face: 'web', refEnd: 'A', x0T: '3', nT: '1', xsT: '', wref: 'tos', nyT: '1', y0T: this.fmtTok(dSec / 2) }, { face: 'web', refEnd: 'B', x0T: '3', nT: '1', xsT: '', wref: 'tos', nyT: '1', y0T: this.fmtTok(dSec / 2) }]) }]; }
-        if (st.family === 'chan') { const ny2 = dSec >= 8 ? 2 : 1, y02 = this.fmtTok((dSec - (ny2 - 1) * 3) / 2); return [
-          { l: 'End clips — web', tip: 'Connection bolts through the web: one line 2 1/4″ in from each end, ' + (ny2 === 2 ? '2 rows @ 3″ centered on depth' : '1 row on the centerline') + '. 3/4″ bolts.', go: addR([{ face: 'web', bolt: '3/4', type: 'std', refEnd: 'A', x0T: '2 1/4', nT: '1', xsT: '', wref: 'tos', nyT: String(ny2), pyT: '3', y0T: y02 }, { face: 'web', bolt: '3/4', type: 'std', refEnd: 'B', x0T: '2 1/4', nT: '1', xsT: '', wref: 'tos', nyT: String(ny2), pyT: '3', y0T: y02 }]) },
-          { l: 'Web CL — every 12″', tip: 'Strut-style: one row on the web centerline every 12″, centered — unistrut, rails, curbs. 1/2″ bolts.', go: addR([Object.assign({ face: 'web', bolt: '1/2', type: 'std', wref: 'tos', nyT: '1', y0T: this.fmtTok(dSec / 2) }, spreadR(12, 6))]) },
-          { l: 'Flange @ std gauge — every 12″', tip: 'Hole line on the top flange at the workable gauge from the back, every 12″ centered.', go: addR([Object.assign({ face: 'tf', bolt: '1/2', type: 'std', amode: 'gauge', gT: gStd('tf') || '1 1/2' }, spreadR(12, 6))]) }]; }
+          { l: 'One hole on top', tip: 'One hole at 0\u00B0, 6\u2033 from end A. Set the size, distance and degrees after.', go: addR([{ type: 'cust', diaT: '1', refEnd: 'A', x0T: '6', nT: '1', xsT: '', azT: '0', aznT: '1' }]) },
+          { l: 'Row along the top', tip: 'Holes at 0\u00B0 every 12\u2033, centered on the cut length \u2014 header or manifold outlets.', go: addR([Object.assign({ type: 'cust', diaT: '1', azT: '0', aznT: '1' }, spreadR(12, 6))]) },
+          { l: 'Straight through', tip: 'Same hole on both sides (90\u00B0 and 270\u00B0), 6\u2033 from end A \u2014 pins, bolts, rods.', go: addR([{ type: 'cust', diaT: '13/16', refEnd: 'A', x0T: '6', nT: '1', xsT: '', azT: '90', aznT: '2', azpT: '180' }]) },
+          { l: '4 around', tip: '4 holes around the pipe at mid-length, starting 45\u00B0 off top so none land on the seam.', go: addR([Object.assign({ type: 'cust', diaT: '1', azT: '45', aznT: '4', azpT: '90' }, midR)]) }];
+        if (st.family === 'hss') {
+          const h1 = (face, end, d, x, off) => ({ face, type: 'cust', diaT: d, refEnd: end, x0T: x, nT: '1', xsT: '', offT: off || '0' });
+          const dOff = this.fmtTok(Math.max(.5, ((c.sec && c.sec.B) || 4) / 4));
+          return [
+            { l: 'Through hole \u2014 end A', tip: '\u00D89/16 (1/2\u2033 bolt) through both side walls, 1 1/2\u2033 from end A. The bottom face centerline is the program seam, so through holes go side to side.', go: addR([h1('L', 'A', '9/16', '1 1/2'), h1('R', 'A', '9/16', '1 1/2')]) },
+            { l: 'Through holes \u2014 both ends', tip: '\u00D89/16 through both side walls, 1 1/2\u2033 from each end.', go: addR([Object.assign(h1('L', 'A', '9/16', '1 1/2'), { both: true }), Object.assign(h1('R', 'A', '9/16', '1 1/2'), { both: true })]) },
+            { l: 'Holes every 12\u2033 \u2014 top', tip: '\u00D89/16 down the top face every 12\u2033, centered on the length.', go: addR([Object.assign({ face: 'T', type: 'cust', diaT: '9/16', offT: '0' }, spreadR(12, 6))]) },
+            { l: 'Drain holes \u2014 bottom', tip: '\u00D83/8 on the bottom face, 1\u2033 from each end, set off center because the bottom centerline is the program seam \u2014 galvanized or outdoor tube.', go: addR([Object.assign(h1('B', 'A', '3/8', '1', dOff), { both: true })]) },
+            { l: 'Slots \u2014 both ends', tip: '9/16 \u00D7 1 1/2\u2033 slots along the length on the top face, 2\u2033 from each end.', go: addR([Object.assign(h1('T', 'A', '9/16', '2'), { type: 'slot', sllT: '1 1/2', ax: 'x', both: true })]) }];
+        }
+        if (st.family === 'beam' || st.family === 'chan') {
+          const isC = st.family === 'chan';
+          const ny = dSec >= 18 ? 4 : dSec >= 12 ? 3 : dSec >= 8 ? 2 : 1;
+          const y0 = this.fmtTok((dSec - (ny - 1) * 3) / 2);
+          const web = { face: 'web', bolt: '3/4', type: 'std', x0T: '2', pT: '3', nT: '1', xsT: '', autoY: true, nyT: String(ny), pyT: '3' };
+          const flg = { face: 'tf', bolt: '3/4', type: 'std', autoG: true, amode: 'gauge', gT: gStd('tf') || (isC ? '1 1/2' : '5 1/2'), x0T: '2', pT: '3', nT: '2', xsT: '' };
+          const webTip = ny + ' bolt' + (ny > 1 ? 's' : '') + ' in a vertical line, 3\u2033 apart, centered on the web, 2\u2033 from the end. 3/4\u2033 bolts.';
+          const out = [
+            { l: 'Web bolts \u2014 both ends', tip: 'Shear connection at each end: ' + webTip, go: addR([Object.assign({}, web, { both: true })]) },
+            { l: 'Web bolts \u2014 one end', tip: webTip, go: addR([Object.assign({}, web)]) }];
+          if (!isC) out.push({ l: 'Flange bolts \u2014 both ends', tip: '4 bolts in the top flange at each end (2 along \u00D7 2 across at the standard gauge) \u2014 cap, base or splice plates. Tap Both flanges to add the bottom.', go: addR([Object.assign({}, flg, { both: true })]) });
+          out.push({ l: 'Web holes every 12\u2033', tip: 'One row on the web centerline every 12\u2033, centered on the length.', go: addR([Object.assign({ face: 'web', bolt: isC ? '1/2' : '3/4', type: 'std', autoY: true, nyT: '1' }, spreadR(12, 6))]) });
+          out.push({ l: 'Flange holes every 12\u2033', tip: 'Top flange at the standard gauge, every 12\u2033, centered on the length \u2014 grating, decking, rails.', go: addR([Object.assign({ face: 'tf', bolt: isC ? '1/2' : '3/4', type: 'std', autoG: true, amode: 'gauge', gT: flg.gT }, spreadR(12, 6))]) });
+          return out;
+        }
         const ga = gStd('vleg') || '1 3/4';
+        const a1 = (end, n) => ({ face: 'vleg', bolt: '3/4', type: 'std', refEnd: end, x0T: '1 1/2', pT: '3', nT: String(n), xsT: '', gT: ga });
         return [
-          { l: 'Gauge line — every 12″', tip: 'Holes on the standard gauge from the heel, every 12″ centered — ledger / shelf angles.', go: addR([Object.assign({ face: 'vleg', bolt: '3/4', type: 'std', gT: ga }, spreadR(12, 6))]) },
-          { l: 'Clip — 2 bolts @ 3″', tip: 'Standard clip: 2 bolts at 3″ pitch, first 1 3/4″ from end A, on the heel gauge.', go: addR([{ face: 'vleg', bolt: '3/4', type: 'std', x0T: '1 3/4', pT: '3', nT: '2', xsT: '', gT: ga }]) },
-          { l: '1 @ each end', tip: 'Single hole on the gauge line 1 1/2″ off each end.', go: addR([{ face: 'vleg', bolt: '3/4', type: 'std', refEnd: 'A', x0T: '1 1/2', nT: '1', xsT: '', gT: ga }, { face: 'vleg', bolt: '3/4', type: 'std', refEnd: 'B', x0T: '1 1/2', nT: '1', xsT: '', gT: ga }]) }];
+          { l: '1 bolt \u2014 both ends', tip: 'One 3/4\u2033 bolt hole on the standard gauge line, 1 1/2\u2033 from each end \u2014 braces and struts.', go: addR([Object.assign(a1('A', 1), { both: true })]) },
+          { l: '2 bolts \u2014 both ends', tip: 'Two 3/4\u2033 bolt holes 3\u2033 apart on the gauge line at each end.', go: addR([Object.assign(a1('A', 2), { both: true })]) },
+          { l: '2 bolts \u2014 end A only', tip: 'Two 3/4\u2033 bolt holes 3\u2033 apart on the gauge line, starting 1 1/2\u2033 from end A \u2014 clips.', go: addR([a1('A', 2)]) },
+          { l: 'Holes every 12\u2033', tip: 'Holes on the gauge line every 12\u2033, centered on the length \u2014 ledger and shelf angles.', go: addR([Object.assign({ face: 'vleg', bolt: '3/4', type: 'std', gT: ga }, spreadR(12, 6))]) }];
       })(),
       hasIssues: c.warns.length > 0,
       issues: c.warns.map(w => ({ t: w.t, dot: { color: w.lvl === 'err' ? '#B3261E' : '#B45309', font: '700 12px/1 monospace' } })),
-      invalid: c.invalid,
+      invalid: c.invalid || errN > 0,
       job: st.job, heat: st.heat, qty: st.qty, onJob: setS('job'), onHeat: setS('heat'),
       onQty: (e) => this.setState({ qty: Math.max(1, Math.round(+e.target.value || 1)) }),
       specShape: this.famLabel() + ' \u00B7 ' + c.sec.label,
@@ -2451,7 +2750,10 @@ class Component extends DCLogic {
       dxfRefOff: () => this.setState({ dxfRef: false }),
       dxfRefOnS: { padding: '4px 7px', cursor: 'pointer', borderRadius: 3, border: '1px solid ' + (st.dxfRef ? '#1F3A5F' : '#C9CFD6'), background: st.dxfRef ? 'rgba(31,58,95,.08)' : 'transparent', color: st.dxfRef ? '#1F3A5F' : '#47515C', font: '700 12px/1 Barlow, sans-serif', letterSpacing: '.02em' },
       dxfRefOffS: { padding: '4px 7px', cursor: 'pointer', borderRadius: 3, border: '1px solid ' + (!st.dxfRef ? '#1F3A5F' : '#C9CFD6'), background: !st.dxfRef ? 'rgba(31,58,95,.08)' : 'transparent', color: !st.dxfRef ? '#1F3A5F' : '#47515C', font: '700 12px/1 Barlow, sans-serif', letterSpacing: '.02em' },
-      dlStep: () => { const t = this._stepText(); if (t) this._download(t, this.fileBase() + '.step', 'application/step'); },
+      dlStepMesh: () => { const t = this._stepText(); if (t) this._download(t, this.fileBase() + ' - VIEW ONLY mesh.step', 'application/step'); },
+      dlIgs: () => this.dlSolid('igs'), dlStep: () => this.dlSolid('step'),
+      igsLbl: st.solidBusy === 'igs' ? 'Building the file\u2026' : 'Download for the laser', stepLbl: st.solidBusy === 'step' ? 'Building solid\u2026' : 'STEP solid',
+      solidBusy: !!st.solidBusy || !!st.jobBusy || c.invalid || errN > 0,
       dlObj: () => { const t = this._objText(); if (t) this._download(t, this.fileBase() + '.obj', 'model/obj'); },
       dlDxf: () => { const t = this._dxfText(); if (t) this._download(t, this.fileBase() + '.dxf', 'application/dxf'); },
       dlCsv: () => { const t = this._csvText(); if (t) this._download(t, this.fileBase() + '_holes.csv', 'text/csv'); },
@@ -2469,16 +2771,17 @@ class Component extends DCLogic {
       onSpin: () => this.setState(s => ({ spin: !s.spin })),
       spinLbl: (st.spin ? 'Stop spin' : 'Spin'),
       spinBtnS: this.hudBtn(st.spin),
-      bandTitle: c.kind === 'round' || c.kind === 'box' ? 'Flat program — tube unrolled' : 'Flat program — each face',
-      bandLegend: st.hovL ? st.hovL : (c.kind === 'round' || c.kind === 'box' ? 'Wrap ' + (c.wrap ? c.wrap.toFixed(3) + '\u2033' : '\u2014') + ' \u00B7 seam at bottom of part \u00B7 grid 12\u2033' : 'Grid 12\u2033'),
+      bandTitle: c.kind === 'round' ? 'Flat layout — pipe opened out flat' : c.kind === 'box' ? 'Flat layout — tube opened out flat' : 'Flat layout — each face',
+      bandLegend: st.hovL ? st.hovL : (c.kind === 'round' ? 'Middle = top of the pipe \u00B7 top and bottom edge = the seam \u00B7 lines every 12\u2033' : c.kind === 'box' ? 'Middle = top face \u00B7 top and bottom edge = the seam \u00B7 lines every 12\u2033' : 'Lines every 12\u2033'),
       bandLegendS: { font: st.hovL ? '700 12px/1 JetBrains Mono, monospace' : '500 12px/1 JetBrains Mono, monospace', color: st.hovL ? '#1F3A5F' : '#6B7480', whiteSpace: 'nowrap' },
       vb: p.vb, gridP: p.gridP, refP: p.refP, wpP: p.wpP, outAP: p.outAP, outBP: p.outBP, outCP: p.outCP, holesP: p.holesP,
       bandLbls: p.lbls, sw: p.sw, swThin: p.swThin, dash: p.dash,
       endASpec: c.invalid || !c.A ? '\u2014' : this.endSpecText(c.A, c.sec),
       endBSpec: c.invalid || !c.B ? '\u2014' : this.endSpecText(c.B, c.sec),
       holeChip: nOK ? Object.entries(byDia).map(([k, v]) => v + '\u00D7 ' + k).join('  ') : 'NO HOLES',
-      stReady: errN ? errN + ' issue' + (errN > 1 ? 's' : '') : 'Ready to cut',
-      stReadyS: { color: errN ? '#B3261E' : '#1F3A5F', font: '700 12px/1 JetBrains Mono, monospace', letterSpacing: '.02em' },
+      stReady: errN ? errN + ' thing' + (errN > 1 ? 's' : '') + ' to fix' : cautionList.length ? cautionList.length + ' thing' + (cautionList.length > 1 ? 's' : '') + ' to check' : 'Ready to cut',
+      midSpec: c.invalid ? '\u2014' : (Math.abs(c.LP - c.SP) > 1 / 64 ? 'SHORT POINT ' + this.fmtFtIn(c.SP) + ' \u00B7 ' : '') + (nOK ? Object.entries(byDia).map(([k, v]) => v + '\u00D7 ' + k).join('  ') : 'NO HOLES') + ' \u00B7 ' + Math.round(c.wt) + ' LB EA',
+      stReadyS: { color: errN ? '#B3261E' : cautionList.length ? '#B45309' : '#1F3A5F', font: '700 12px/1 JetBrains Mono, monospace', letterSpacing: '.02em' },
       stDims: c.invalid ? '\u2014' : 'CL ' + this.fmtFtIn(c.L) + ' \u00B7 LP ' + this.fmtFtIn(c.LP) + ' \u00B7 SP ' + this.fmtFtIn(c.SP),
       stWt: c.invalid ? '' : Math.round(c.wt) + ' LB EA',
       jobOpen: st.jobOpen, jobEmpty: st.parts.length === 0, jobParts, nests: nests.map(n2 => ({
@@ -2497,12 +2800,12 @@ class Component extends DCLogic {
       roCost: '$' + totCost.toFixed(0),
       dlJobTicket: () => this._openTicket(this._jobTicketHtml(), 'job_ticket.html'),
       dlJobCsv: () => { const t = this._jobCsv(); if (t) this._download(t, 'job_cutlist.csv', 'text/csv'); },
-      clearJob: () => { if (confirm('Clear all parts from this job?')) this.setState({ parts: [] }); },
+      clearJob: () => { if (confirm('Clear all parts from this job?')) this.setState({ parts: [], editId: null }); },
       recallT: st.recallT, onRecall: setS('recallT'),
       recallMsg: st.recallMsg,
       doRecall: () => {
         const cfg = this.decodeCfg(st.recallT);
-        if (cfg) this.setState(Object.assign({ step: 5, recallMsg: 'Loaded \u2713', recallT: '' }, cfg));
+        if (cfg) this.setState(Object.assign({ step: 5, recallMsg: 'Loaded \u2713', recallT: '' }, this.forForm(cfg)));
         else this.setState({ recallMsg: 'Bad code \u2014 paste the whole part code (starts SPFPB)' });
       },
       lenModeWp: () => this.setState({ lenMode: 'wp' }),
@@ -2514,7 +2817,7 @@ class Component extends DCLogic {
         const last = this.state.parts[this.state.parts.length - 1];
         if (!last) return;
         const cfg = this.cfgFromPart(last);
-        if (cfg) this.setState(Object.assign({}, cfg, { mark: this.state.mark, step: 1 }));
+        if (cfg) this.setState(Object.assign({}, this.forForm(cfg), { mark: this.state.mark, step: 1 }));
       },
       hbNps: st.hdrB.nps, hbSch: st.hdrB.sch,
       hbNpsOpts: npsOpts, hbSchedOpts: schedOpts,
@@ -2575,7 +2878,7 @@ class Component extends DCLogic {
         this.setState(s2 => {
           const archive = s2.parts.length ? [this._mkArch(s2)].concat(s2.archive).slice(0, 200) : s2.archive;
           this._saveArchive(archive);
-          return Object.assign(Component.freshPart(), { archive, parts: [], job: '', stickSel: {}, jobOpen: true, recallT: '', recallMsg: '', archQ: '', hdrB: { nps: '10', sch: '40', seat: 'on', hid: 1, list: [] }, archMsg: s2.parts.length ? 'Filed ' + (s2.job || 'job') + ' to PAST JOBS \u2713' : 'Fresh job \u2713' });
+          return Object.assign(Component.freshPart(), { archive, parts: [], editId: null, lenMode: 'oal', job: '', stickSel: {}, jobOpen: true, recallT: '', recallMsg: '', archQ: '', hdrB: { nps: '10', sch: '40', seat: 'on', hid: 1, list: [] }, archMsg: s2.parts.length ? 'Filed ' + (s2.job || 'job') + ' to PAST JOBS \u2713' : 'Fresh job \u2713' });
         });
       },
       archCount: st.archive.length ? st.archive.length + ' saved' : 'none yet',
@@ -2597,7 +2900,7 @@ class Component extends DCLogic {
             let archive = s2.archive.filter(x => x.id !== a.id);
             if (s2.parts.length) archive = [this._mkArch(s2)].concat(archive);
             this._saveArchive(archive);
-            return { archive, parts: JSON.parse(JSON.stringify(a.parts)), job: a.job || '', gripT: a.gripT || s2.gripT, stickSel: a.stickSel || {}, hdrB: (a.hdrB && Array.isArray(a.hdrB.list)) ? a.hdrB : s2.hdrB, jobOpen: true, archMsg: 'Reopened ' + (a.job || 'job') + ' \u2713' };
+            return { archive, editId: null, parts: JSON.parse(JSON.stringify(a.parts)), job: a.job || '', gripT: a.gripT || s2.gripT, stickSel: a.stickSel || {}, hdrB: (a.hdrB && Array.isArray(a.hdrB.list)) ? a.hdrB : s2.hdrB, jobOpen: true, archMsg: 'Reopened ' + (a.job || 'job') + ' \u2713' };
           });
         },
         del: () => {
@@ -2650,21 +2953,23 @@ class Component extends DCLogic {
 
   hudBtn(on) { return { cursor: 'pointer', borderRadius: 4, border: '1px solid ' + (on ? '#1F3A5F' : '#C9CFD6'), background: 'rgba(255,255,255,.92)', color: on ? '#1F3A5F' : '#47515C', font: '700 12px/1 JetBrains Mono, monospace', letterSpacing: '.02em', padding: '8px 10px' }; }
   newCode() { return 'SPF-' + Math.random().toString(36).slice(2, 6).toUpperCase(); }
-  addToJob() {
+  addToJob(asNew) {
     const c = this.calc(), st = this.state;
-    if (c.invalid) return;
+    if (this.blocked(c)) return;
     const cfg = this.snapshot();
+    const old = !asNew && st.editId != null ? st.parts.find(x => x.id === st.editId) : null;
     const part = {
-      id: Date.now() + Math.random(), code: this.newCode(), mark: st.mark || '-',
+      id: old ? old.id : Date.now() + Math.random(), code: old ? old.code : this.newCode(), mark: st.mark || '-',
       desc: this.famLabel() + ' \u00B7 ' + c.sec.label + ' \u00B7 ' + this.matRec().label,
-      lenT2: this.fmtFtIn(c.L) + (c.LP > 0 && Math.abs(c.LP - c.L) > 1 / 64 ? ' \u00B7 LP ' + this.fmtFtIn(c.LP) : ''), oal: c.OAL || c.L, wt: c.wt, qty: st.qty, cat: this.matRec().cat,
+      lenT2: this.fmtFtIn(c.OAL || c.L), oal: c.OAL || c.L, wt: c.wt, qty: st.qty, cat: this.matRec().cat,
       groupKey: this.famLabel() + '|' + c.sec.label + '|' + this.matRec().id,
       groupLabel: c.sec.label + ' \u00B7 ' + this.matRec().id,
       payload: this.encodeCfgV1(cfg)
     };
     const bump = /^(.*?)(\d+)$/.exec(st.mark || '');
     const nextMark = bump ? bump[1] + (parseInt(bump[2], 10) + 1) : st.mark;
-    this.setState(s => ({ parts: s.parts.concat([part]), jobOpen: true, mark: nextMark }));
+    if (old) { this.setState(s => ({ parts: s.parts.map(x => x.id === old.id ? part : x), jobOpen: true, editId: null, markStash: null, mark: s.markStash || s.mark })); return; }
+    this.setState(s => ({ parts: s.parts.concat([part]), jobOpen: true, mark: nextMark, editId: null, markStash: null }));
   }
   _jobCsv() {
     const st = this.state;

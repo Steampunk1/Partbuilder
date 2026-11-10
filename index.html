@@ -45,423 +45,389 @@
     <img class="logo" src="assets/logo-black.png" alt="Steampunk Fabrication">
     <div class="sep"></div>
     <div class="name">Part Builder</div>
-    <div class="part">{{ topChip }}</div>
+    <div class="part">{{ chip }}</div>
     <span class="state" style="{{ stReadyS }}">{{ stReady }}</span>
     <button class="btn" onClick="{{ tgHelp }}">Help</button>
     <button class="btn primary" onClick="{{ tgJob }}">Job list · {{ jobCount }}</button>
   </div>
   <div class="main">
     <div class="side">
+     <div class="steps">
 
-      <!-- 1 MATERIAL -->
-      <button class="step-h" onClick="{{ goto1 }}">
-        <span style="{{ n1S }}">{{ n1T }}</span>
-        <span class="grow"><span class="t">Material</span><span class="s">{{ sum1 }}</span></span>
-        <span class="c">{{ car1 }}</span>
-      </button>
-      <sc-if value="{{ open1 }}" hint-placeholder-val="{{ true }}">
-        <div class="step-b">
-          <div class="fam">
-            <button onClick="{{ pickPipe }}" style="{{ fbPipe }}"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="12" r="8.5"></circle><circle cx="12" cy="12" r="5" opacity="0.45"></circle></svg><span>Pipe</span></button>
-            <button onClick="{{ pickHss }}" style="{{ fbHss }}"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="4" y="4" width="16" height="16" rx="3.5"></rect><rect x="6.5" y="6.5" width="11" height="11" rx="2" opacity="0.45"></rect></svg><span>Sq / Rect</span></button>
-            <button onClick="{{ pickBeam }}" style="{{ fbBeam }}"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M5 4.5H19M5 19.5H19M12 4.5V19.5"></path></svg><span>Beam</span></button>
-            <button onClick="{{ pickChan }}" style="{{ fbChan }}"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M17 4.5H7V19.5H17"></path></svg><span>Channel</span></button>
-            <button onClick="{{ pickAngl }}" style="{{ fbAngl }}"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M7 4.5V19.5H19.5"></path></svg><span>Angle</span></button>
-          </div>
-
-          <sc-if value="{{ isPipe }}" hint-placeholder-val="{{ true }}">
-            <div class="g2">
-              <label class="f"><span>Pipe size (NPS)</span><select data-sv="{{ pnps }}" value="{{ pnps }}" onChange="{{ onPnps }}"><sc-for list="{{ pipeNpsOpts }}" as="o" hint-placeholder-count="8"><option value="{{ o }}">{{ o }}″</option></sc-for></select></label>
-              <label class="f"><span>Schedule</span><select data-sv="{{ psch }}" value="{{ psch }}" onChange="{{ onPsch }}"><sc-for list="{{ pipeSchedOpts }}" as="o" hint-placeholder-count="6"><option value="{{ o }}">{{ o }}</option></sc-for></select></label>
-            </div>
-          </sc-if>
-          <sc-if value="{{ isHss }}" hint-placeholder-val="{{ false }}">
-            <div class="g2">
-              <label class="f"><span>Size — tall × wide</span><select data-sv="{{ hsize }}" value="{{ hsize }}" onChange="{{ onHsize }}"><sc-for list="{{ hssSizeOpts }}" as="o" hint-placeholder-count="8"><option value="{{ o }}">HSS {{ o }}</option></sc-for></select></label>
-              <label class="f"><span>Wall</span><select data-sv="{{ hwallT }}" value="{{ hwallT }}" onChange="{{ onHwall }}"><sc-for list="{{ hssWallOpts }}" as="o" hint-placeholder-count="6"><option value="{{ o }}">{{ o }}″</option></sc-for></select></label>
-            </div>
-          </sc-if>
-          <sc-if value="{{ isBeam }}" hint-placeholder-val="{{ false }}">
-            <div class="row end">
-              <label class="f" style="width:104px;flex:none"><span>Series</span><select data-sv="{{ bser }}" value="{{ bser }}" onChange="{{ onBser }}"><option value="W">W</option><option value="S">S</option><option value="CUST">Custom</option></select></label>
-              <sc-if value="{{ notCustomBeam }}" hint-placeholder-val="{{ false }}">
-                <label class="f grow"><span>Size</span><select data-sv="{{ bsize }}" value="{{ bsize }}" onChange="{{ onBsize }}"><sc-for list="{{ beamSizeOpts }}" as="o" hint-placeholder-count="8"><option value="{{ o }}">{{ o }}</option></sc-for></select></label>
-              </sc-if>
-            </div>
-            <sc-if value="{{ isCustom }}" hint-placeholder-val="{{ false }}">
-              <div class="g5">
-                <label class="f"><span>Depth</span><input value="{{ cdT }}" onChange="{{ onCd }}"></label>
-                <label class="f"><span>Flg W</span><input value="{{ cbT }}" onChange="{{ onCb }}"></label>
-                <label class="f"><span>Flg T</span><input value="{{ ctfT }}" onChange="{{ onCtf }}"></label>
-                <label class="f"><span>Web T</span><input value="{{ ctwT }}" onChange="{{ onCtw }}"></label>
-                <label class="f"><span>lb/ft</span><input value="{{ cwT }}" onChange="{{ onCw }}"></label>
-              </div>
-            </sc-if>
-          </sc-if>
-          <sc-if value="{{ isChan }}" hint-placeholder-val="{{ false }}">
-            <div class="row end">
-              <label class="f" style="width:104px;flex:none"><span>Series</span><select data-sv="{{ cser }}" value="{{ cser }}" onChange="{{ onCser }}"><option value="C">C</option><option value="MC">MC</option></select></label>
-              <label class="f grow"><span>Size</span><select data-sv="{{ csize }}" value="{{ csize }}" onChange="{{ onCsize }}"><sc-for list="{{ chanSizeOpts }}" as="o" hint-placeholder-count="8"><option value="{{ o }}">{{ o }}</option></sc-for></select></label>
-            </div>
-          </sc-if>
-          <sc-if value="{{ isAngl }}" hint-placeholder-val="{{ false }}">
-            <div class="g2">
-              <label class="f"><span>Legs — vertical × horizontal</span><select data-sv="{{ asize }}" value="{{ asize }}" onChange="{{ onAsize }}"><sc-for list="{{ anglSizeOpts }}" as="o" hint-placeholder-count="8"><option value="{{ o }}">L{{ o }}</option></sc-for></select></label>
-              <label class="f"><span>Thickness</span><select data-sv="{{ athkT }}" value="{{ athkT }}" onChange="{{ onAthk }}"><sc-for list="{{ anglThkOpts }}" as="o" hint-placeholder-count="6"><option value="{{ o }}">{{ o }}″</option></sc-for></select></label>
-            </div>
-          </sc-if>
-          <div class="note">{{ stockEcho }}</div>
-
-          <div>
-            <div class="row between" style="margin-bottom:4px">
-              <span class="lbl" style="margin:0">Cut length</span>
-              <span class="seg"><button onClick="{{ lenModeWp }}" title="Length between work points (centerline to centerline)" style="{{ lenWpS }}">Work point</button><button onClick="{{ lenModeOal }}" title="Overall long-point length off the tape — the app does the take-out math" style="{{ lenOalS }}">Long point</button></span>
-            </div>
-            <input class="in len" value="{{ lenT }}" onChange="{{ onLen }}" placeholder="12'-6 3/8">
-            <div class="hint" style="margin-top:4px">Reads <span style="{{ lenEchoStyle }}">{{ lenEcho }}</span> · type 12'-6 3/8, 150.375 or 6 1/2</div>
-          </div>
-
-          <div class="row end">
-            <label class="f grow"><span>Grade</span><select data-sv="{{ mat }}" value="{{ mat }}" onChange="{{ onMat }}"><sc-for list="{{ matOpts }}" as="mo" hint-placeholder-count="4"><option value="{{ mo.id }}">{{ mo.label }}</option></sc-for></select></label>
-            <label class="f" style="width:110px;flex:none"><span>Mark #</span><input value="{{ mark }}" onChange="{{ onMark }}"></label>
-          </div>
-
-          <div>
-            <div class="lbl">Common cuts — one tap sets both ends</div>
-            <div class="chips">
-              <sc-for list="{{ quicks }}" as="q" hint-placeholder-count="3"><button class="chip" onClick="{{ q.go }}">{{ q.l }}</button></sc-for>
-              <sc-if value="{{ hasParts }}" hint-placeholder-val="{{ false }}"><button class="chip" onClick="{{ sameLast }}" title="Copies ends and holes from the last part added — just set length and mark">Same as last part</button></sc-if>
-            </div>
-          </div>
-          <button class="btn primary block" onClick="{{ goto2 }}">Next — End A ›</button>
+      <!-- MATERIAL -->
+      <div class="sec">
+        <h3>Material</h3>
+        <div class="fam">
+          <button onClick="{{ pickPipe }}" style="{{ fbPipe }}"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="12" r="8.5"></circle><circle cx="12" cy="12" r="5" opacity="0.45"></circle></svg><span>Pipe</span></button>
+          <button onClick="{{ pickHss }}" style="{{ fbHss }}"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="4" y="4" width="16" height="16" rx="3.5"></rect><rect x="6.5" y="6.5" width="11" height="11" rx="2" opacity="0.45"></rect></svg><span>Sq / Rect</span></button>
+          <button onClick="{{ pickBeam }}" style="{{ fbBeam }}"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M5 4.5H19M5 19.5H19M12 4.5V19.5"></path></svg><span>Beam</span></button>
+          <button onClick="{{ pickChan }}" style="{{ fbChan }}"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M17 4.5H7V19.5H17"></path></svg><span>Channel</span></button>
+          <button onClick="{{ pickAngl }}" style="{{ fbAngl }}"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M7 4.5V19.5H19.5"></path></svg><span>Angle</span></button>
         </div>
-      </sc-if>
 
-      <!-- 2 + 3 ENDS -->
-      <sc-for list="{{ endSteps }}" as="ec" hint-placeholder-count="2">
-        <button class="step-h" onClick="{{ ec.goto }}">
-          <span style="{{ ec.nS }}">{{ ec.nT }}</span>
-          <span class="grow"><span class="t">End {{ ec.id }} <em>{{ ec.side }}</em></span><span class="s">{{ ec.sum }}</span></span>
-          <span class="c">{{ ec.car }}</span>
-        </button>
-        <sc-if value="{{ ec.open }}" hint-placeholder-val="{{ false }}">
-          <div class="step-b">
-            <sc-if value="{{ ec.isRound }}" hint-placeholder-val="{{ false }}">
-              <div class="row between">
-                <span class="q">End cut</span>
-                <div class="seg">
-                  <button onClick="{{ ec.mSq }}" style="{{ ec.mSqS }}">Square</button>
-                  <button onClick="{{ ec.mMiter }}" style="{{ ec.mMiterS }}">Miter</button>
-                  <button onClick="{{ ec.mSaddle }}" style="{{ ec.mSaddleS }}">Saddle</button>
-                </div>
+        <sc-if value="{{ isPipe }}" hint-placeholder-val="{{ true }}">
+          <div class="gm">
+            <label class="f"><span>Pipe size</span><select data-sv="{{ pnps }}" value="{{ pnps }}" onChange="{{ onPnps }}"><sc-for list="{{ pipeNpsOpts }}" as="o" hint-placeholder-count="8"><option value="{{ o }}">{{ o }}″</option></sc-for></select></label>
+            <label class="f"><span>Schedule</span><select data-sv="{{ psch }}" value="{{ psch }}" onChange="{{ onPsch }}"><sc-for list="{{ pipeSchedOpts }}" as="o" hint-placeholder-count="6"><option value="{{ o }}">{{ o }}</option></sc-for></select></label>
+            <label class="f"><span>Grade</span><select data-sv="{{ mat }}" value="{{ mat }}" onChange="{{ onMat }}"><sc-for list="{{ matOpts }}" as="mo" hint-placeholder-count="4"><option value="{{ mo.id }}">{{ mo.label }}</option></sc-for></select></label>
+          </div>
+        </sc-if>
+        <sc-if value="{{ isHss }}" hint-placeholder-val="{{ false }}">
+          <div class="gm">
+            <label class="f"><span>Size — tall × wide</span><select data-sv="{{ hsize }}" value="{{ hsize }}" onChange="{{ onHsize }}"><sc-for list="{{ hssSizeOpts }}" as="o" hint-placeholder-count="8"><option value="{{ o }}">{{ o }}</option></sc-for></select></label>
+            <label class="f"><span>Wall</span><select data-sv="{{ hwallT }}" value="{{ hwallT }}" onChange="{{ onHwall }}"><sc-for list="{{ hssWallOpts }}" as="o" hint-placeholder-count="6"><option value="{{ o }}">{{ o }}″</option></sc-for></select></label>
+            <label class="f"><span>Grade</span><select data-sv="{{ mat }}" value="{{ mat }}" onChange="{{ onMat }}"><sc-for list="{{ matOpts }}" as="mo" hint-placeholder-count="4"><option value="{{ mo.id }}">{{ mo.label }}</option></sc-for></select></label>
+          </div>
+        </sc-if>
+        <sc-if value="{{ isBeam }}" hint-placeholder-val="{{ false }}">
+          <div class="gm beam">
+            <label class="f"><span>Type</span><select data-sv="{{ bser }}" value="{{ bser }}" onChange="{{ onBser }}"><option value="W">W</option><option value="S">S</option><option value="CUST">Custom</option></select></label>
+            <sc-if value="{{ notCustomBeam }}" hint-placeholder-val="{{ false }}">
+              <label class="f"><span>Size</span><select data-sv="{{ bsize }}" value="{{ bsize }}" onChange="{{ onBsize }}"><sc-for list="{{ beamSizeOpts }}" as="o" hint-placeholder-count="8"><option value="{{ o }}">{{ o }}</option></sc-for></select></label>
+            </sc-if>
+            <label class="f"><span>Grade</span><select data-sv="{{ mat }}" value="{{ mat }}" onChange="{{ onMat }}"><sc-for list="{{ matOpts }}" as="mo" hint-placeholder-count="4"><option value="{{ mo.id }}">{{ mo.label }}</option></sc-for></select></label>
+          </div>
+          <sc-if value="{{ isCustom }}" hint-placeholder-val="{{ false }}">
+            <div class="g5">
+              <label class="f"><span>Depth</span><input value="{{ cdT }}" onChange="{{ onCd }}"></label>
+              <label class="f"><span>Flg W</span><input value="{{ cbT }}" onChange="{{ onCb }}"></label>
+              <label class="f"><span>Flg T</span><input value="{{ ctfT }}" onChange="{{ onCtf }}"></label>
+              <label class="f"><span>Web T</span><input value="{{ ctwT }}" onChange="{{ onCtw }}"></label>
+              <label class="f"><span>lb/ft</span><input value="{{ cwT }}" onChange="{{ onCw }}"></label>
+            </div>
+          </sc-if>
+        </sc-if>
+        <sc-if value="{{ isChan }}" hint-placeholder-val="{{ false }}">
+          <div class="gm beam">
+            <label class="f"><span>Type</span><select data-sv="{{ cser }}" value="{{ cser }}" onChange="{{ onCser }}"><option value="C">C</option><option value="MC">MC</option></select></label>
+            <label class="f"><span>Size</span><select data-sv="{{ csize }}" value="{{ csize }}" onChange="{{ onCsize }}"><sc-for list="{{ chanSizeOpts }}" as="o" hint-placeholder-count="8"><option value="{{ o }}">{{ o }}</option></sc-for></select></label>
+            <label class="f"><span>Grade</span><select data-sv="{{ mat }}" value="{{ mat }}" onChange="{{ onMat }}"><sc-for list="{{ matOpts }}" as="mo" hint-placeholder-count="4"><option value="{{ mo.id }}">{{ mo.label }}</option></sc-for></select></label>
+          </div>
+        </sc-if>
+        <sc-if value="{{ isAngl }}" hint-placeholder-val="{{ false }}">
+          <div class="gm">
+            <label class="f"><span>Legs — up × across</span><select data-sv="{{ asize }}" value="{{ asize }}" onChange="{{ onAsize }}"><sc-for list="{{ anglSizeOpts }}" as="o" hint-placeholder-count="8"><option value="{{ o }}">{{ o }}</option></sc-for></select></label>
+            <label class="f"><span>Thickness</span><select data-sv="{{ athkT }}" value="{{ athkT }}" onChange="{{ onAthk }}"><sc-for list="{{ anglThkOpts }}" as="o" hint-placeholder-count="6"><option value="{{ o }}">{{ o }}″</option></sc-for></select></label>
+            <label class="f"><span>Grade</span><select data-sv="{{ mat }}" value="{{ mat }}" onChange="{{ onMat }}"><sc-for list="{{ matOpts }}" as="mo" hint-placeholder-count="4"><option value="{{ mo.id }}">{{ mo.label }}</option></sc-for></select></label>
+          </div>
+        </sc-if>
+        <div class="note">{{ stockEcho }}</div>
+      </div>
+
+      <!-- LENGTH -->
+      <div class="sec">
+        <h3>Cut length</h3>
+        <input class="in len" value="{{ lenT }}" onChange="{{ onLen }}" placeholder="12'-6 3/8">
+        <div class="hint">= <span style="{{ lenEchoStyle }}">{{ lenEcho }}</span></div>
+        <sc-if value="{{ hasLenNote }}" hint-placeholder-val="{{ false }}"><div class="hint">{{ lenNote }}</div></sc-if>
+      </div>
+
+      <!-- ENDS -->
+      <div class="sec">
+        <h3>Ends</h3>
+        <sc-for list="{{ endSteps }}" as="ec" hint-placeholder-count="2">
+          <div class="endsec">
+            <div class="row between">
+              <span class="q">End {{ ec.id }} <em>{{ ec.sideTxt }}</em></span>
+              <div class="row">
+                <sc-if value="{{ ec.isRound }}" hint-placeholder-val="{{ true }}">
+                  <div class="seg">
+                    <button onClick="{{ ec.mSq }}" style="{{ ec.mSqS }}">Square</button>
+                    <button onClick="{{ ec.mMiter }}" style="{{ ec.mMiterS }}">Miter</button>
+                    <button onClick="{{ ec.mSaddle }}" style="{{ ec.mSaddleS }}" title="Fish-mouth cut to fit against another pipe">Saddle</button>
+                  </div>
+                </sc-if>
+                <sc-if value="{{ ec.notRound }}" hint-placeholder-val="{{ false }}">
+                  <div class="seg">
+                    <button onClick="{{ ec.angNo }}" style="{{ ec.angNoS }}">Square</button>
+                    <button onClick="{{ ec.angYes }}" style="{{ ec.angYesS }}">Miter</button>
+                  </div>
+                </sc-if>
+                <sc-if value="{{ ec.isBeamFam }}" hint-placeholder-val="{{ false }}">
+                  <button onClick="{{ ec.tgCope }}" style="{{ ec.copeS }}" title="Notch the flange so this end fits against another beam">Cope</button>
+                </sc-if>
               </div>
+            </div>
+
+            <sc-if value="{{ ec.isRound }}" hint-placeholder-val="{{ false }}">
               <sc-if value="{{ ec.isMiter }}" hint-placeholder-val="{{ false }}">
                 <div class="box">
                   <div class="g2">
                     <label class="f"><span>Angle off square °</span><input type="number" step="0.5" value="{{ ec.maT }}" onChange="{{ ec.sMa }}"></label>
-                    <label class="f"><span>Rotation ° (0 = long on top)</span><input type="number" step="5" value="{{ ec.mrT }}" onChange="{{ ec.sMr }}"></label>
+                    <label class="f"><span>Turned ° (0 = long side on top)</span><input type="number" step="5" value="{{ ec.mrT }}" onChange="{{ ec.sMr }}"></label>
                   </div>
                 </div>
               </sc-if>
               <sc-if value="{{ ec.isSaddle }}" hint-placeholder-val="{{ false }}">
                 <div class="box">
-                  <div class="row between"><span class="lbl" style="margin:0">Fits onto a header that is</span><div class="seg"><button onClick="{{ ec.hdrPipe }}" style="{{ ec.hdrPipeS }}">Pipe size</button><button onClick="{{ ec.hdrCustGo }}" style="{{ ec.hdrCustS }}">Custom OD</button></div></div>
-                  <sc-if value="{{ ec.hdrCust }}" hint-placeholder-val="{{ false }}">
-                    <div class="g2">
-                      <label class="f"><span>Header OD</span><input value="{{ ec.sdHodT }}" onChange="{{ ec.sSdHod }}" placeholder="10.75"></label>
-                      <label class="f"><span>Header wall</span><input value="{{ ec.sdHwT }}" onChange="{{ ec.sSdHw }}" placeholder=".365"></label>
-                    </div>
-                  </sc-if>
                   <sc-if value="{{ ec.hdrNps }}" hint-placeholder-val="{{ true }}">
-                    <div class="g2">
-                      <label class="f"><span>Header size (NPS)</span><select data-sv="{{ ec.sdN }}" value="{{ ec.sdN }}" onChange="{{ ec.sSdN }}"><sc-for list="{{ ec.npsOpts }}" as="o" hint-placeholder-count="8"><option value="{{ o }}">{{ o }}″</option></sc-for></select></label>
-                      <label class="f"><span>Header schedule</span><select data-sv="{{ ec.sdS }}" value="{{ ec.sdS }}" onChange="{{ ec.sSdS }}"><sc-for list="{{ ec.schedOpts }}" as="o" hint-placeholder-count="6"><option value="{{ o }}">{{ o }}</option></sc-for></select></label>
+                    <div class="g3">
+                      <label class="f"><span>Fits against</span><select data-sv="{{ ec.sdN }}" value="{{ ec.sdN }}" onChange="{{ ec.sSdN }}"><sc-for list="{{ ec.npsOpts }}" as="o" hint-placeholder-count="8"><option value="{{ o }}">{{ o }}″ pipe</option></sc-for></select></label>
+                      <label class="f"><span>Schedule</span><select data-sv="{{ ec.sdS }}" value="{{ ec.sdS }}" onChange="{{ ec.sSdS }}"><sc-for list="{{ ec.schedOpts }}" as="o" hint-placeholder-count="6"><option value="{{ o }}">{{ o }}</option></sc-for></select></label>
+                      <label class="f"><span>Angle ° (90 = tee)</span><input type="number" step="1" min="20" max="90" value="{{ ec.sdAT }}" onChange="{{ ec.sSdA }}"></label>
                     </div>
                   </sc-if>
-                  <div class="g2">
-                    <label class="f"><span>Joint angle ° (90 = tee)</span><input type="number" step="1" min="20" max="90" value="{{ ec.sdAT }}" onChange="{{ ec.sSdA }}"></label>
-                    <label class="f"><span>Roll ° around branch</span><input type="number" step="5" value="{{ ec.sdRT }}" onChange="{{ ec.sSdR }}"></label>
-                  </div>
+                  <sc-if value="{{ ec.hdrCust }}" hint-placeholder-val="{{ false }}">
+                    <div class="g3">
+                      <label class="f"><span>Fits against OD</span><input value="{{ ec.sdHodT }}" onChange="{{ ec.sSdHod }}" placeholder="10.75"></label>
+                      <label class="f"><span>Its wall</span><input value="{{ ec.sdHwT }}" onChange="{{ ec.sSdHw }}" placeholder=".365"></label>
+                      <label class="f"><span>Angle ° (90 = tee)</span><input type="number" step="1" min="20" max="90" value="{{ ec.sdAT }}" onChange="{{ ec.sSdA }}"></label>
+                    </div>
+                  </sc-if>
                   <div class="seg">
-                    <button class="grow" onClick="{{ ec.seatOn }}" style="{{ ec.seatOnS }}" title="Branch sits on the outside of the header">Set-on</button>
-                    <button class="grow" onClick="{{ ec.seatThru }}" style="{{ ec.seatThruS }}" title="Branch drops through to the header ID">Set-through</button>
+                    <button class="grow" onClick="{{ ec.seatOn }}" style="{{ ec.seatOnS }}" title="This pipe sits on the outside of the other pipe">Sits on it</button>
+                    <button class="grow" onClick="{{ ec.seatThru }}" style="{{ ec.seatThruS }}" title="This pipe drops through a hole, down to the inside of the other pipe">Goes through it</button>
                   </div>
-                  <div class="note">{{ ec.sdChip }}</div>
-                  <sc-if value="{{ ec.hasHole }}" hint-placeholder-val="{{ false }}">
-                    <div class="row between">
-                      <span class="note grow">{{ ec.holeDims }}</span>
-                      <button class="btn sm" onClick="{{ ec.dlHdrHole }}">Header hole DXF</button>
+                  <details>
+                    <summary>Odd size or rolled</summary>
+                    <div class="d">
+                      <div class="row between"><span class="lbl" style="margin:0">Fits against</span><div class="seg"><button onClick="{{ ec.hdrPipe }}" style="{{ ec.hdrPipeS }}">Pipe size</button><button onClick="{{ ec.hdrCustGo }}" style="{{ ec.hdrCustS }}">Custom OD</button></div></div>
+                      <label class="f"><span>Roll ° around this pipe</span><input type="number" step="5" value="{{ ec.sdRT }}" onChange="{{ ec.sSdR }}"></label>
+                      <sc-if value="{{ ec.hasHole }}" hint-placeholder-val="{{ false }}">
+                        <div class="row between">
+                          <span class="note grow">{{ ec.holeDims }}</span>
+                          <button class="btn sm" onClick="{{ ec.dlHdrHole }}">Hole DXF</button>
+                        </div>
+                      </sc-if>
                     </div>
-                  </sc-if>
+                  </details>
                 </div>
               </sc-if>
             </sc-if>
             <sc-if value="{{ ec.notRound }}" hint-placeholder-val="{{ false }}">
-              <div class="row between">
-                <span class="q">End cut</span>
-                <div class="seg">
-                  <button onClick="{{ ec.angNo }}" style="{{ ec.angNoS }}">Square</button>
-                  <button onClick="{{ ec.angYes }}" style="{{ ec.angYesS }}">Angled</button>
-                </div>
-              </div>
               <sc-if value="{{ ec.angled }}" hint-placeholder-val="{{ false }}">
                 <div class="box">
                   <div class="g2">
-                    <label class="f"><span>Miter ° seen from above</span><input type="number" step="0.5" value="{{ ec.tpT }}" onChange="{{ ec.sTp }}"></label>
-                    <label class="f"><span>Miter ° seen from side</span><input type="number" step="0.5" value="{{ ec.tvT }}" onChange="{{ ec.sTv }}"></label>
+                    <label class="f"><span>Angle ° seen from the side</span><input type="number" step="0.5" value="{{ ec.tvT }}" onChange="{{ ec.sTv }}"></label>
+                    <label class="f"><span>Angle ° seen from above</span><input type="number" step="0.5" value="{{ ec.tpT }}" onChange="{{ ec.sTp }}"></label>
                   </div>
-                  <div class="hint">0 = square. Fill both for a compound cut.</div>
+                  <div class="hint">Angle off square. Fill in one box for a normal miter, both for a compound cut.</div>
                 </div>
               </sc-if>
             </sc-if>
 
             <sc-if value="{{ ec.isBeamFam }}" hint-placeholder-val="{{ false }}">
-              <div class="row between">
-                <span class="q">Cope or rat holes</span>
-                <div class="seg">
-                  <button onClick="{{ ec.copNo }}" style="{{ ec.copNoS }}">No</button>
-                  <button onClick="{{ ec.copYes }}" style="{{ ec.copYesS }}">Yes</button>
-                </div>
-              </div>
               <sc-if value="{{ ec.wantCope }}" hint-placeholder-val="{{ false }}">
                 <div class="box">
                   <div class="row end">
-                    <button onClick="{{ ec.tgTop }}" style="{{ ec.topBtn }}">Top cope</button>
+                    <button style="{{ ec.topBtn }}" onClick="{{ ec.tgTop }}" title="Turn the top flange cope on or off">Top flange</button>
                     <label class="f grow"><span>Length</span><input value="{{ ec.tcT }}" onChange="{{ ec.sTc }}"></label>
                     <label class="f grow"><span>Depth</span><input value="{{ ec.tdT }}" onChange="{{ ec.sTd }}"></label>
-                    <label class="f grow"><span>Radius</span><input value="{{ ec.trT }}" onChange="{{ ec.sTr }}"></label>
                   </div>
                   <div class="row end">
-                    <button onClick="{{ ec.tgBot }}" style="{{ ec.botBtn }}">Bot cope</button>
-                    <label class="f grow"><input value="{{ ec.bcT }}" onChange="{{ ec.sBc }}"></label>
-                    <label class="f grow"><input value="{{ ec.bdT }}" onChange="{{ ec.sBd }}"></label>
-                    <label class="f grow"><input value="{{ ec.brT }}" onChange="{{ ec.sBr }}"></label>
+                    <button style="{{ ec.botBtn }}" onClick="{{ ec.tgBot }}" title="Turn the bottom flange cope on or off">Bottom flange</button>
+                    <label class="f grow"><span>Length</span><input value="{{ ec.bcT }}" onChange="{{ ec.sBc }}"></label>
+                    <label class="f grow"><span>Depth</span><input value="{{ ec.bdT }}" onChange="{{ ec.sBd }}"></label>
                   </div>
-                  <div class="row end">
-                    <label class="f grow"><span>Rat holes (weld access)</span><select data-sv="{{ ec.rat }}" value="{{ ec.rat }}" onChange="{{ ec.sRat }}"><option value="NONE">None</option><option value="TOP">Top</option><option value="BOT">Bottom</option><option value="BOTH">Both</option></select></label>
-                    <label class="f" style="width:90px;flex:none"><span>Radius</span><input value="{{ ec.rrT }}" onChange="{{ ec.sRr }}"></label>
-                  </div>
+                  <div class="hint">Tap Top flange or Bottom flange to switch that cope on. Length runs along the beam, depth is down from the flange.</div>
+                  <details>
+                    <summary>Corner radius &amp; weld access holes</summary>
+                    <div class="d">
+                      <div class="g2">
+                        <label class="f"><span>Top cope radius</span><input value="{{ ec.trT }}" onChange="{{ ec.sTr }}"></label>
+                        <label class="f"><span>Bottom cope radius</span><input value="{{ ec.brT }}" onChange="{{ ec.sBr }}"></label>
+                        <label class="f"><span>Weld access (rat) holes</span><select data-sv="{{ ec.rat }}" value="{{ ec.rat }}" onChange="{{ ec.sRat }}"><option value="NONE">None</option><option value="TOP">Top</option><option value="BOT">Bottom</option><option value="BOTH">Both</option></select></label>
+                        <label class="f"><span>Access hole radius</span><input value="{{ ec.rrT }}" onChange="{{ ec.sRr }}"></label>
+                      </div>
+                    </div>
+                  </details>
                 </div>
               </sc-if>
             </sc-if>
 
-            <div class="row between">
-              <span class="q">Weld bevel</span>
-              <div class="seg">
-                <button onClick="{{ ec.bevNo }}" style="{{ ec.bevNoS }}">No</button>
-                <button onClick="{{ ec.bevYes }}" style="{{ ec.bevYesS }}">Yes</button>
-              </div>
-            </div>
-            <sc-if value="{{ ec.wantBevel }}" hint-placeholder-val="{{ false }}">
-              <div class="box">
-                <div class="g2">
-                  <label class="f"><span>Bevel °</span><input type="number" step="0.5" min="0" max="60" value="{{ ec.bvT }}" onChange="{{ ec.sBv }}"></label>
-                  <label class="f"><span>Land (root face)</span><input value="{{ ec.landT }}" onChange="{{ ec.sLand }}" placeholder="1/16"></label>
-                  <sc-if value="{{ ec.isPlateFam }}" hint-placeholder-val="{{ false }}">
-                    <label class="f"><span>Opens toward</span><select data-sv="{{ ec.open2 }}" value="{{ ec.open2 }}" onChange="{{ ec.sOpen }}"><option value="TOP">Top</option><option value="BOT">Bottom</option><option value="NEAR">Near flange</option><option value="FAR">Far flange</option><option value="DBL">Double (K)</option></select></label>
-                    <label class="f"><span>On</span><select data-sv="{{ ec.app }}" value="{{ ec.app }}" onChange="{{ ec.sApp }}"><option value="BOTH">Flanges + web</option><option value="FLG">Flanges only</option><option value="WEB">Web only</option></select></label>
-                  </sc-if>
-                </div>
-                <div class="hint">Goes on the ticket and DXF as a machine note — bevel comp stays in CAM.</div>
-              </div>
-            </sc-if>
-
-            <sc-if value="{{ ec.showRO }}" hint-placeholder-val="{{ false }}">
-              <details>
-                <summary>Rolling offset helper</summary>
-                <div class="d">
-                  <div class="g3">
-                    <label class="f"><span>Set (up)</span><input value="{{ ec.roST }}" onChange="{{ ec.sRoS }}"></label>
-                    <label class="f"><span>Roll (over)</span><input value="{{ ec.roRT }}" onChange="{{ ec.sRoR }}"></label>
-                    <label class="f"><span>Advance</span><input value="{{ ec.roAT }}" onChange="{{ ec.sRoA }}"></label>
-                  </div>
-                  <div class="row between"><span class="note grow">{{ ec.roChip }}</span><button class="btn sm" onClick="{{ ec.roApply }}">Apply to piece</button></div>
-                </div>
-              </details>
-            </sc-if>
-
-            <div class="nav">
-              <button class="btn" onClick="{{ ec.back }}">‹ Back</button>
-              <button class="btn" onClick="{{ ec.mirror }}" title="Copy the other end's whole setup onto this end">Same as end {{ ec.otherId }}</button>
-              <button class="btn primary grow" onClick="{{ ec.next }}">{{ ec.nextLbl }} ›</button>
-            </div>
+            <sc-if value="{{ ec.showMirror }}" hint-placeholder-val="{{ false }}"><button class="btn sm ghost" style="align-self:flex-start" onClick="{{ ec.mirror }}" title="Copy End A's whole setup onto End B">Make End B the same as End A</button></sc-if>
           </div>
-        </sc-if>
-      </sc-for>
+        </sc-for>
 
-      <!-- 4 HOLES -->
-      <button class="step-h" onClick="{{ goto4 }}">
-        <span style="{{ n4S }}">{{ n4T }}</span>
-        <span class="grow"><span class="t">Holes <em>optional</em></span><span class="s">{{ sum4 }}</span></span>
-        <span class="c">{{ car4 }}</span>
-      </button>
-      <sc-if value="{{ open4 }}" hint-placeholder-val="{{ false }}">
-        <div class="step-b">
-          <div>
-            <div class="lbl">Common layouts — one tap, then adjust</div>
-            <div class="chips"><sc-for list="{{ recipes }}" as="rp" hint-placeholder-count="4"><button class="chip" onClick="{{ rp.go }}" title="{{ rp.tip }}">{{ rp.l }}</button></sc-for></div>
-          </div>
-          <div class="hint">Or click the flat drawing to drop a hole. Drag a hole to move it, click it to remove it.</div>
-          <sc-if value="{{ wantHoles }}" hint-placeholder-val="{{ false }}">
-            <sc-for list="{{ groups }}" as="hg" hint-placeholder-count="1">
-              <div class="grp">
-                <div class="row end">
-                  <sc-if value="{{ hg.hasFaces }}" hint-placeholder-val="{{ false }}"><label class="f grow"><span>Where</span><select data-sv="{{ hg.face }}" value="{{ hg.face }}" onChange="{{ hg.sFace }}"><sc-for list="{{ hg.faceOpts }}" as="fo" hint-placeholder-count="3"><option value="{{ fo.v }}">{{ fo.l }}</option></sc-for></select></label></sc-if>
-                  <sc-if value="{{ hg.isBoltMat }}" hint-placeholder-val="{{ false }}">
-                    <label class="f" style="width:74px;flex:none"><span>Bolt</span><select data-sv="{{ hg.bolt }}" value="{{ hg.bolt }}" onChange="{{ hg.sBolt }}"><option value="1/2">1/2</option><option value="5/8">5/8</option><option value="3/4">3/4</option><option value="7/8">7/8</option><option value="1">1</option><option value="1 1/8">1-1/8</option><option value="1 1/4">1-1/4</option></select></label>
-                    <label class="f grow"><span>Hole type</span><select data-sv="{{ hg.type }}" value="{{ hg.type }}" onChange="{{ hg.sType }}"><option value="std">Standard</option><option value="ovs">Oversize</option><option value="ssl">Short slot</option><option value="lsl">Long slot</option><option value="cust">Custom Ø</option></select></label>
-                  </sc-if>
-                  <sc-if value="{{ hg.isRoundMat }}" hint-placeholder-val="{{ false }}">
-                    <label class="f" style="width:86px;flex:none"><span>Branch</span><select data-sv="{{ hg.bnps }}" value="{{ hg.bnps }}" onChange="{{ hg.sBnps }}"><sc-for list="{{ hg.bnpsOpts }}" as="o" hint-placeholder-count="6"><option value="{{ o }}">{{ o }}″</option></sc-for></select></label>
-                    <label class="f grow"><span>Opening</span><select data-sv="{{ hg.type }}" value="{{ hg.type }}" onChange="{{ hg.sType }}"><option value="olet">Olet — bore (ID)</option><option value="stub">Stub-in — branch OD</option><option value="cust">Custom Ø</option></select></label>
-                  </sc-if>
-                  <sc-if value="{{ hg.isHssMat }}" hint-placeholder-val="{{ false }}"><label class="f" style="width:110px;flex:none"><span>Cutout</span><select data-sv="{{ hg.type }}" value="{{ hg.type }}" onChange="{{ hg.sType }}"><option value="cust">Round Ø</option><option value="slot">Slot</option></select></label></sc-if>
-                  <button class="btn x" onClick="{{ hg.del }}" title="Delete this group">✕</button>
-                </div>
-                <sc-if value="{{ hg.isOlet }}" hint-placeholder-val="{{ false }}">
-                  <div class="row end">
-                    <label class="f" style="width:120px;flex:none"><span>Branch schedule</span><select data-sv="{{ hg.bsch }}" value="{{ hg.bsch }}" onChange="{{ hg.sBsch }}"><sc-for list="{{ hg.bschOpts }}" as="o" hint-placeholder-count="4"><option value="{{ o }}">{{ o }}</option></sc-for></select></label>
-                    <span class="note grow">{{ hg.diaEcho }}</span>
-                  </div>
-                </sc-if>
-                <div class="row end">
-                  <sc-if value="{{ hg.isSlot }}" hint-placeholder-val="{{ false }}"><label class="f grow"><span>Slot runs</span><select data-sv="{{ hg.ax }}" value="{{ hg.ax }}" onChange="{{ hg.sAx }}"><option value="x">Along length</option><option value="y">Across</option></select></label></sc-if>
-                  <sc-if value="{{ hg.showDia }}" hint-placeholder-val="{{ false }}"><label class="f grow"><span>{{ hg.diaLbl }}</span><input value="{{ hg.diaT }}" onChange="{{ hg.sDia }}"></label></sc-if>
-                  <sc-if value="{{ hg.isHssSlot }}" hint-placeholder-val="{{ false }}"><label class="f grow"><span>Slot length</span><input value="{{ hg.sllT }}" onChange="{{ hg.sSll }}"></label></sc-if>
-                </div>
+      </div>
 
-                <div class="lbl" style="margin:2px 0 -4px">Along the length</div>
-                <div class="g4">
-                  <label class="f"><span>From end</span><select data-sv="{{ hg.refEnd }}" value="{{ hg.refEnd }}" onChange="{{ hg.sRef }}"><option value="A">A</option><option value="B">B</option></select></label>
-                  <label class="f"><span>First hole</span><input value="{{ hg.x0T }}" onChange="{{ hg.sX0 }}"></label>
-                  <label class="f"><span>Spacing</span><input value="{{ hg.pT }}" onChange="{{ hg.sP }}"></label>
-                  <label class="f"><span>Qty</span><input type="number" min="1" max="60" value="{{ hg.nT }}" onChange="{{ hg.sN }}"></label>
+      <!-- HOLES -->
+      <div class="sec">
+        <div class="row between"><h3>Holes</h3><span class="hint">{{ sum4 }}</span></div>
+        <div class="chips"><sc-for list="{{ recipes }}" as="rp" hint-placeholder-count="4"><button class="chip" onClick="{{ rp.go }}" title="{{ rp.tip }}">{{ rp.l }}</button></sc-for></div>
+        <sc-if value="{{ wantHoles }}" hint-placeholder-val="{{ false }}">
+          <sc-for list="{{ groups }}" as="hg" hint-placeholder-count="1">
+            <div class="grp">
+              <sc-if value="{{ hg.isPlateG }}" hint-placeholder-val="{{ false }}">
+                <div class="seg faces"><sc-for list="{{ hg.faceBtns }}" as="fbn" hint-placeholder-count="4"><button onClick="{{ fbn.go }}" style="{{ fbn.s }}">{{ fbn.l }}</button></sc-for></div>
+                <div class="g3">
+                  <label class="f"><span>Bolt size</span><select data-sv="{{ hg.bolt }}" value="{{ hg.bolt }}" onChange="{{ hg.sBolt }}"><option value="1/2">1/2</option><option value="5/8">5/8</option><option value="3/4">3/4</option><option value="7/8">7/8</option><option value="1">1</option><option value="1 1/8">1-1/8</option><option value="1 1/4">1-1/4</option></select></label>
+                  <label class="f"><span>At</span><select data-sv="{{ hg.endSel }}" value="{{ hg.endSel }}" onChange="{{ hg.sEndSel }}"><option value="AB">Both ends</option><option value="A">End A</option><option value="B">End B</option></select></label>
+                  <label class="f"><span>In from the end</span><input value="{{ hg.x0T }}" onChange="{{ hg.sX0 }}"></label>
                 </div>
-
-                <sc-if value="{{ hg.isRound }}" hint-placeholder-val="{{ false }}">
-                  <div>
-                    <div class="lbl">Clock position — looking in from end A</div>
-                    <div class="chips"><sc-for list="{{ hg.clocks }}" as="ck" hint-placeholder-count="6"><button onClick="{{ ck.go }}" title="{{ ck.tip }}" style="{{ ck.s }}">{{ ck.l }}</button></sc-for></div>
-                    <div class="hint" style="margin-top:6px">6:00 is the program seam — nothing cuts on it. Use 5:00 or 7:00 and roll at fit-up.</div>
-                  </div>
-                </sc-if>
-                <sc-if value="{{ hg.isBoxFace }}" hint-placeholder-val="{{ false }}">
-                  <label class="f"><span>Offset from face centerline</span><input value="{{ hg.offT }}" onChange="{{ hg.sOff }}"></label>
-                </sc-if>
+                <div class="cnt">
+                  <span class="lbl">Along the beam</span>
+                  <input class="in" type="number" min="1" max="60" value="{{ hg.nT }}" onChange="{{ hg.sN }}"><span>bolts,</span>
+                  <input class="in" value="{{ hg.pT }}" onChange="{{ hg.sP }}"><span>apart</span>
+                </div>
                 <sc-if value="{{ hg.isWeb }}" hint-placeholder-val="{{ false }}">
-                  <div class="lbl" style="margin:2px 0 -4px">Across the web</div>
-                  <div class="g4">
-                    <label class="f"><span>Measure from</span><select data-sv="{{ hg.wref }}" value="{{ hg.wref }}" onChange="{{ hg.sWref }}"><option value="tos">Top ↓</option><option value="cl">Center ↓</option><option value="bos">Bottom ↑</option></select></label>
-                    <label class="f"><span>To 1st row</span><input value="{{ hg.y0T }}" onChange="{{ hg.sY0 }}"></label>
-                    <label class="f"><span>Rows</span><input type="number" min="1" max="30" value="{{ hg.nyT }}" onChange="{{ hg.sNy }}"></label>
-                    <label class="f"><span>Row spacing</span><input value="{{ hg.pyT }}" onChange="{{ hg.sPy }}"></label>
+                  <div class="cnt">
+                    <span class="lbl">Down the web</span>
+                    <input class="in" type="number" min="1" max="30" value="{{ hg.nyT }}" onChange="{{ hg.sNy }}"><span>bolts,</span>
+                    <input class="in" value="{{ hg.pyT }}" onChange="{{ hg.sPy }}"><span>apart</span>
+                  </div>
+                </sc-if>
+                <sc-if value="{{ hg.showAutoY }}" hint-placeholder-val="{{ false }}">
+                  <div class="row"><button onClick="{{ hg.tgAutoY }}" style="{{ hg.autoYS }}" title="On: the bolts stay centered on the web depth. Off: type the distance down from the top.">Centered on web</button>
+                    <sc-if value="{{ hg.manualY }}" hint-placeholder-val="{{ false }}"><label class="f grow"><span>{{ hg.y0Lbl }}</span><input value="{{ hg.y0T }}" onChange="{{ hg.sY0 }}"></label></sc-if>
                   </div>
                 </sc-if>
                 <sc-if value="{{ hg.isFlg }}" hint-placeholder-val="{{ false }}">
                   <div class="row end">
-                    <label class="f grow"><span>Across the flange</span><select data-sv="{{ hg.amode }}" value="{{ hg.amode }}" onChange="{{ hg.sAmode }}"><option value="gauge">{{ hg.gaugeLabel }}</option><option value="off">Single line at offset</option></select></label>
-                    <label class="f" style="width:92px;flex:none"><span>{{ hg.gLbl }}</span><input value="{{ hg.gT }}" onChange="{{ hg.sG }}"></label>
-                    <sc-if value="{{ hg.hasStdG }}" hint-placeholder-val="{{ false }}"><button class="btn sm" style="height:36px" onClick="{{ hg.setStdG }}" title="{{ hg.stdTip }}">Std {{ hg.stdG }}″</button></sc-if>
+                    <sc-if value="{{ hg.showAutoG }}" hint-placeholder-val="{{ false }}"><button onClick="{{ hg.tgAutoG }}" style="{{ hg.autoGS }}" title="On: two hole lines at the standard gauge for this size, centered on the flange. Off: type your own gauge.">{{ hg.autoGLbl }}</button></sc-if>
+                    <sc-if value="{{ hg.manualG }}" hint-placeholder-val="{{ false }}"><label class="f grow"><span>{{ hg.gLbl }}</span><input value="{{ hg.gT }}" onChange="{{ hg.sG }}"></label></sc-if>
                   </div>
                 </sc-if>
-                <sc-if value="{{ hg.isLeg }}" hint-placeholder-val="{{ false }}">
-                  <div class="row end">
-                    <label class="f grow"><span>Gauge from heel</span><input value="{{ hg.gT }}" onChange="{{ hg.sG }}"></label>
-                    <sc-if value="{{ hg.hasStdG }}" hint-placeholder-val="{{ false }}"><button class="btn sm" style="height:36px" onClick="{{ hg.setStdG }}" title="{{ hg.stdTip }}">Std {{ hg.stdG }}″</button></sc-if>
-                  </div>
-                </sc-if>
-
-                <div class="row wrap">
-                  <button onClick="{{ hg.center }}" title="Center the pattern along the part length" style="{{ hg.cenS }}">Center on length</button>
-                  <sc-if value="{{ hg.hasCtrY }}" hint-placeholder-val="{{ false }}"><button onClick="{{ hg.centerY }}" title="Center the rows on the web depth" style="{{ hg.cenSY }}">Center on depth</button></sc-if>
-                  <sc-if value="{{ hg.canCopyOpp }}" hint-placeholder-val="{{ false }}"><button class="btn sm" onClick="{{ hg.copyOpp }}" title="Duplicate this group on the opposite face">Copy to opposite face</button></sc-if>
-                </div>
-                <div class="note">{{ hg.chip }}</div>
-
+                <div class="row between"><span class="note">{{ hg.chip }}</span><button class="btn sm ghost" onClick="{{ hg.del }}">Remove</button></div>
                 <details>
-                  <summary>Exact positions</summary>
+                  <summary>More options</summary>
                   <div class="d">
-                    <label class="f"><span>Exact spots from end {{ hg.refEnd }} — overrides spacing</span><input value="{{ hg.xsT }}" onChange="{{ hg.sXs }}" placeholder="3, 9, 15 1/2"></label>
-                    <sc-if value="{{ hg.isRound }}" hint-placeholder-val="{{ false }}">
-                      <div class="g3">
-                        <label class="f"><span>Clock ° (0 = 12:00)</span><input type="number" step="5" value="{{ hg.azT }}" onChange="{{ hg.sAz }}"></label>
-                        <label class="f"><span>Qty around</span><input type="number" min="1" max="24" value="{{ hg.aznT }}" onChange="{{ hg.sAzn }}"></label>
-                        <label class="f"><span>Spacing °</span><input type="number" step="5" value="{{ hg.azpT }}" onChange="{{ hg.sAzp }}"></label>
-                      </div>
-                    </sc-if>
+                    <label class="f"><span>Hole type</span><select data-sv="{{ hg.type }}" value="{{ hg.type }}" onChange="{{ hg.sType }}"><option value="std">Standard</option><option value="ovs">Oversize</option><option value="ssl">Short slot</option><option value="lsl">Long slot</option><option value="cust">Custom Ø</option></select></label>
+                    <sc-if value="{{ hg.showDia }}" hint-placeholder-val="{{ false }}"><label class="f"><span>{{ hg.diaLbl }}</span><input value="{{ hg.diaT }}" onChange="{{ hg.sDia }}"></label></sc-if>
+                    <sc-if value="{{ hg.isSlot }}" hint-placeholder-val="{{ false }}"><label class="f"><span>Slot runs</span><select data-sv="{{ hg.ax }}" value="{{ hg.ax }}" onChange="{{ hg.sAx }}"><option value="x">Along length</option><option value="y">Across</option></select></label></sc-if>
+                    <sc-if value="{{ hg.manualY }}" hint-placeholder-val="{{ false }}"><label class="f"><span>Rows measured from</span><select data-sv="{{ hg.wref }}" value="{{ hg.wref }}" onChange="{{ hg.sWref }}"><option value="tos">Top of beam, down</option><option value="cl">Centerline, down</option><option value="bos">Bottom of beam, up</option></select></label></sc-if>
+                    <sc-if value="{{ hg.manualG }}" hint-placeholder-val="{{ false }}"><label class="f"><span>Across the flange</span><select data-sv="{{ hg.amode }}" value="{{ hg.amode }}" onChange="{{ hg.sAmode }}"><option value="gauge">{{ hg.gaugeLabel }}</option><option value="off">Single line at offset</option></select></label></sc-if>
+                    <label class="f"><span>Exact spots from end {{ hg.refEnd }} — replaces the "along the beam" boxes</span><input value="{{ hg.xsT }}" onChange="{{ hg.sXs }}" placeholder="3, 9, 15 1/2"></label>
+                    <button onClick="{{ hg.center }}" title="Center the pattern along the part length" style="{{ hg.cenS }}">Center on length</button>
                   </div>
                 </details>
-              </div>
-            </sc-for>
-            <div class="row">
-              <button class="btn grow" onClick="{{ addGroup }}">+ Add another group</button>
-              <button class="btn ghost" onClick="{{ holesNo }}">No holes</button>
-            </div>
-          </sc-if>
-          <sc-if value="{{ noHoles }}" hint-placeholder-val="{{ true }}">
-            <button class="btn block" onClick="{{ holesYes }}">+ Add holes manually</button>
-          </sc-if>
-          <div class="nav">
-            <button class="btn" onClick="{{ goto3b }}">‹ Back</button>
-            <button class="btn primary grow" onClick="{{ goto5 }}">Next — Review ›</button>
-          </div>
-        </div>
-      </sc-if>
+              </sc-if>
+              <sc-if value="{{ hg.notPlateG }}" hint-placeholder-val="{{ true }}">
+              <div class="row end">
+                <sc-if value="{{ hg.hasFaces }}" hint-placeholder-val="{{ false }}"><label class="f grow"><span>Where</span><select data-sv="{{ hg.face }}" value="{{ hg.face }}" onChange="{{ hg.sFace }}"><sc-for list="{{ hg.faceOpts }}" as="fo" hint-placeholder-count="3"><option value="{{ fo.v }}">{{ fo.l }}</option></sc-for></select></label></sc-if>
+                <sc-if value="{{ hg.isBoltMat }}" hint-placeholder-val="{{ false }}">
+                  <label class="f" style="width:74px;flex:none"><span>Bolt</span><select data-sv="{{ hg.bolt }}" value="{{ hg.bolt }}" onChange="{{ hg.sBolt }}"><option value="1/2">1/2</option><option value="5/8">5/8</option><option value="3/4">3/4</option><option value="7/8">7/8</option><option value="1">1</option><option value="1 1/8">1-1/8</option><option value="1 1/4">1-1/4</option></select></label>
+                </sc-if>
+                <sc-if value="{{ hg.isRoundMat }}" hint-placeholder-val="{{ false }}">
+                  <label class="f grow"><span>Hole size</span><select data-sv="{{ hg.type }}" value="{{ hg.type }}" onChange="{{ hg.sType }}"><option value="cust">Diameter I enter</option><option value="olet">Branch sits on — hole = branch ID</option><option value="stub">Branch goes through — hole = branch OD</option></select></label>
+                  <sc-if value="{{ hg.isBranch }}" hint-placeholder-val="{{ false }}"><label class="f" style="width:84px;flex:none"><span>Branch</span><select data-sv="{{ hg.bnps }}" value="{{ hg.bnps }}" onChange="{{ hg.sBnps }}"><sc-for list="{{ hg.bnpsOpts }}" as="o" hint-placeholder-count="6"><option value="{{ o }}">{{ o }}″</option></sc-for></select></label></sc-if>
+                  <sc-if value="{{ hg.isRoundCust }}" hint-placeholder-val="{{ false }}"><label class="f" style="width:84px;flex:none"><span>Hole Ø</span><input value="{{ hg.diaT }}" onChange="{{ hg.sDia }}"></label></sc-if>
+                </sc-if>
 
-      <!-- 5 REVIEW -->
-      <button class="step-h" onClick="{{ goto5 }}">
-        <span style="{{ n5S }}">{{ n5T }}</span>
-        <span class="grow"><span class="t">Review &amp; files</span><span class="s">{{ sum5 }}</span></span>
-        <span class="c">{{ car5 }}</span>
-      </button>
-      <sc-if value="{{ open5 }}" hint-placeholder-val="{{ false }}">
-        <div class="step-b">
-          <sc-if value="{{ hasIssues }}" hint-placeholder-val="{{ false }}">
-            <div class="issues">
-              <b>Check before cutting</b>
-              <sc-for list="{{ issues }}" as="w" hint-placeholder-count="1"><div><span style="{{ w.dot }}">■</span> {{ w.t }}</div></sc-for>
-            </div>
-          </sc-if>
-          <div class="spec">
-            <div><span>Section</span><span>{{ specShape }}</span></div>
-            <div><span>Centerline length</span><span>{{ specCL }}</span></div>
-            <div><span>Long point</span><span>{{ specLP }}</span></div>
-            <div><span>Short point</span><span>{{ specSP }}</span></div>
-            <div><span>Holes</span><span>{{ specHoles }}</span></div>
-            <div><span>Weight each</span><span>{{ specWt }}</span></div>
-          </div>
-          <div class="g3">
-            <label class="f"><span>Qty</span><input type="number" min="1" value="{{ qty }}" onChange="{{ onQty }}"></label>
-            <label class="f"><span>Job #</span><input value="{{ job }}" onChange="{{ onJob }}"></label>
-            <label class="f"><span>Heat #</span><input value="{{ heat }}" onChange="{{ onHeat }}"></label>
-          </div>
-          <div>
-            <div class="lbl">Laser files</div>
-            <div class="g2">
-              <sc-if value="{{ canStep }}" hint-placeholder-val="{{ true }}"><button class="btn primary two" onClick="{{ dlStep }}" disabled="{{ invalid }}">3D solid — STEP<small>for TubesT</small></button></sc-if>
-              <button class="btn primary two" onClick="{{ dlDxf }}" disabled="{{ invalid }}">Flat program — DXF<small>unrolled cut path</small></button>
-            </div>
-          </div>
-          <button class="btn block big" onClick="{{ addToJob }}" disabled="{{ invalid }}">+ Add to job list</button>
-          <details>
-            <summary>Other files &amp; options</summary>
-            <div class="d">
-              <div class="g2">
-                <button class="btn sm" onClick="{{ dlTicket }}" disabled="{{ invalid }}">Print cut ticket</button>
-                <button class="btn sm" onClick="{{ dlCsv }}" disabled="{{ invalid }}">Hole table — CSV</button>
-                <button class="btn sm" onClick="{{ dlObj }}" disabled="{{ invalid }}" title="Fusion 360: Insert ▸ Insert Mesh, unit = inch">3D mesh — OBJ</button>
-                <sc-if value="{{ hdrA }}" hint-placeholder-val="{{ false }}"><button class="btn sm" onClick="{{ dlHdrA }}" disabled="{{ invalid }}">Header hole A — DXF</button></sc-if>
-                <sc-if value="{{ hdrB }}" hint-placeholder-val="{{ false }}"><button class="btn sm" onClick="{{ dlHdrB }}" disabled="{{ invalid }}">Header hole B — DXF</button></sc-if>
+                <sc-if value="{{ hg.isHssMat }}" hint-placeholder-val="{{ false }}"><label class="f" style="width:96px;flex:none"><span>{{ hg.diaLbl }}</span><input value="{{ hg.diaT }}" onChange="{{ hg.sDia }}"></label></sc-if>
+                <button class="btn x" onClick="{{ hg.del }}" title="Remove this hole">✕</button>
               </div>
+              <sc-if value="{{ hg.isOlet }}" hint-placeholder-val="{{ false }}">
+                <div class="row end">
+                  <label class="f" style="width:120px;flex:none"><span>Branch schedule</span><select data-sv="{{ hg.bsch }}" value="{{ hg.bsch }}" onChange="{{ hg.sBsch }}"><sc-for list="{{ hg.bschOpts }}" as="o" hint-placeholder-count="4"><option value="{{ o }}">{{ o }}</option></sc-for></select></label>
+                  <span class="note grow">{{ hg.diaEcho }}</span>
+                </div>
+              </sc-if>
+              <div class="row end">
+                <sc-if value="{{ hg.isSlot }}" hint-placeholder-val="{{ false }}"><label class="f grow"><span>Slot runs</span><select data-sv="{{ hg.ax }}" value="{{ hg.ax }}" onChange="{{ hg.sAx }}"><option value="x">Along length</option><option value="y">Across</option></select></label></sc-if>
+                <sc-if value="{{ hg.showDia }}" hint-placeholder-val="{{ false }}"><label class="f grow"><span>{{ hg.diaLbl }}</span><input value="{{ hg.diaT }}" onChange="{{ hg.sDia }}"></label></sc-if>
+                <sc-if value="{{ hg.isHssSlot }}" hint-placeholder-val="{{ false }}"><label class="f grow"><span>Slot length</span><input value="{{ hg.sllT }}" onChange="{{ hg.sSll }}"></label></sc-if>
+              </div>
+
+              <sc-if value="{{ hg.notRound }}" hint-placeholder-val="{{ false }}">
+                <div class="g4" style="grid-template-columns:1fr 1.45fr .8fr 1fr">
+                  <label class="f"><span>First hole at</span><input value="{{ hg.x0T }}" onChange="{{ hg.sX0 }}"></label>
+                  <label class="f"><span>From</span><select data-sv="{{ hg.endSel2 }}" value="{{ hg.endSel2 }}" onChange="{{ hg.sEndSel2 }}"><option value="AB">Both ends</option><option value="A">End A</option><option value="B">End B</option></select></label>
+                  <label class="f"><span>How many</span><input type="number" min="1" max="60" value="{{ hg.nT }}" onChange="{{ hg.sN }}"></label>
+                  <label class="f"><span>Spacing</span><input value="{{ hg.pT }}" onChange="{{ hg.sP }}"></label>
+                </div>
+              </sc-if>
+              <sc-if value="{{ hg.isRound }}" hint-placeholder-val="{{ false }}">
+                <div class="g3">
+                  <label class="f"><span>Distance</span><input value="{{ hg.x0T }}" onChange="{{ hg.sX0 }}"></label>
+                  <label class="f"><span>Measured from</span><select data-sv="{{ hg.endSel2 }}" value="{{ hg.endSel2 }}" onChange="{{ hg.sEndSel2 }}"><option value="AB">Both ends</option><option value="A">End A</option><option value="B">End B</option></select></label>
+                  <label class="f"><span>Degrees around</span><input type="number" step="5" value="{{ hg.azT }}" onChange="{{ hg.sAz }}"></label>
+                </div>
+                <div class="hint">0° = top of the pipe · 90° = right side seen from End A · 180° = the seam, keep holes off it</div>
+              </sc-if>
+
+              <sc-if value="{{ hg.isLeg }}" hint-placeholder-val="{{ false }}">
+                <div class="row end">
+                  <label class="f grow"><span>Gauge from heel</span><input value="{{ hg.gT }}" onChange="{{ hg.sG }}"></label>
+                  <sc-if value="{{ hg.hasStdG }}" hint-placeholder-val="{{ false }}"><button class="btn sm" style="height:36px" onClick="{{ hg.setStdG }}" title="{{ hg.stdTip }}">Std {{ hg.stdG }}″</button></sc-if>
+                </div>
+              </sc-if>
+
               <div class="row between">
-                <span class="lbl" style="margin:0">DXF contains</span>
-                <span class="seg"><button onClick="{{ dxfRefOff }}" title="Only the geometry the laser cuts" style="{{ dxfRefOffS }}">Cut lines only</button><button onClick="{{ dxfRefOn }}" title="Adds seam / work-point reference lines and labels — for checking in CAD" style="{{ dxfRefOnS }}">+ Reference lines</button></span>
+                <span class="note">{{ hg.chip }}</span>
+                <div class="row">
+                  <sc-if value="{{ hg.canCopyOpp }}" hint-placeholder-val="{{ false }}"><button class="btn sm" onClick="{{ hg.copyOpp }}" title="Duplicate this hole on the opposite face">Copy to other side</button></sc-if>
+                  <button onClick="{{ hg.center }}" title="Center the pattern along the part length" style="{{ hg.cenS }}">Center on length</button>
+                </div>
               </div>
+
+              <sc-if value="{{ hg.isRound }}" hint-placeholder-val="{{ false }}">
+                <details>
+                  <summary>Repeat this hole / exact distances</summary>
+                  <div class="d">
+                    <div class="g2">
+                      <label class="f"><span>How many along the pipe</span><input type="number" min="1" max="60" value="{{ hg.nT }}" onChange="{{ hg.sN }}"></label>
+                      <label class="f"><span>Spacing along</span><input value="{{ hg.pT }}" onChange="{{ hg.sP }}"></label>
+                      <label class="f"><span>How many around</span><input type="number" min="1" max="24" value="{{ hg.aznT }}" onChange="{{ hg.sAzn }}"></label>
+                      <label class="f"><span>Degrees apart</span><input type="number" step="5" value="{{ hg.azpT }}" onChange="{{ hg.sAzp }}"></label>
+                    </div>
+                    <label class="f"><span>Exact distances — overrides Distance (clicks on the drawing land here)</span><input value="{{ hg.xsT }}" onChange="{{ hg.sXs }}" placeholder="3, 9, 15 1/2"></label>
+                  </div>
+                </details>
+              </sc-if>
+              <sc-if value="{{ hg.notRound }}" hint-placeholder-val="{{ false }}">
+                <details>
+                  <summary>More options</summary>
+                  <div class="d">
+                    <sc-if value="{{ hg.isHssMat }}" hint-placeholder-val="{{ false }}"><label class="f"><span>Shape</span><select data-sv="{{ hg.type }}" value="{{ hg.type }}" onChange="{{ hg.sType }}"><option value="cust">Round hole</option><option value="slot">Slot</option></select></label></sc-if>
+                    <sc-if value="{{ hg.isBoxFace }}" hint-placeholder-val="{{ false }}"><label class="f"><span>Offset from the center of that face (0 = centered; bottom face cannot be 0, that is the seam)</span><input value="{{ hg.offT }}" onChange="{{ hg.sOff }}"></label></sc-if>
+                    <sc-if value="{{ hg.isBoltMat }}" hint-placeholder-val="{{ false }}"><label class="f"><span>Hole type</span><select data-sv="{{ hg.type }}" value="{{ hg.type }}" onChange="{{ hg.sType }}"><option value="std">Standard</option><option value="ovs">Oversize</option><option value="ssl">Short slot</option><option value="lsl">Long slot</option><option value="cust">Custom Ø</option></select></label></sc-if>
+                    <label class="f"><span>Exact spots from end {{ hg.refEnd }} — replaces first hole, how many and spacing</span><input value="{{ hg.xsT }}" onChange="{{ hg.sXs }}" placeholder="3, 9, 15 1/2"></label>
+                  </div>
+                </details>
+              </sc-if>
+              </sc-if>
             </div>
-          </details>
-          <div class="hint">Files are true size — kerf and bevel comp stay in CAM. Dimensions are nominal; measure odd stock.</div>
+          </sc-for>
+        </sc-if>
+        <button class="btn block" onClick="{{ addHole }}">{{ holeBtnLbl }}</button>
+        <div class="hint">{{ holeHint }}</div>
+      </div>
+
+      <!-- TICKET + OTHER FILES -->
+      <div class="sec last">
+        <details>
+          <summary>Cut ticket and other files</summary>
+          <div class="d">
+            <div class="g2">
+              <button class="btn sm" onClick="{{ dlTicket }}" disabled="{{ invalid }}">Print cut ticket</button>
+              <button class="btn sm" onClick="{{ dlDxf }}" disabled="{{ invalid }}" title="The part opened out flat, cut lines only">Flat DXF</button>
+              <button class="btn sm" onClick="{{ dlStep }}" disabled="{{ solidBusy }}" title="The same solid as the laser file, as a STEP file in inches — for CAD">{{ stepLbl }}</button>
+              <sc-if value="{{ hdrA }}" hint-placeholder-val="{{ false }}"><button class="btn sm" onClick="{{ dlHdrA }}" disabled="{{ invalid }}" title="The opening to cut in the pipe End A fits against">Hole for End A — DXF</button></sc-if>
+              <sc-if value="{{ hdrB }}" hint-placeholder-val="{{ false }}"><button class="btn sm" onClick="{{ dlHdrB }}" disabled="{{ invalid }}" title="The opening to cut in the pipe End B fits against">Hole for End B — DXF</button></sc-if>
+            </div>
+            <div class="hint">Every file is true size in inches. Kerf is set in TubesT, not here.</div>
+          </div>
+        </details>
+      </div>
+     </div>
+
+     <div class="foot">
+        <sc-if value="{{ hasErr }}" hint-placeholder-val="{{ false }}">
+          <div class="issues">
+            <b>Fix before cutting</b>
+            <sc-for list="{{ errIssues }}" as="w" hint-placeholder-count="1"><div>{{ w.t }}</div></sc-for>
+          </div>
+        </sc-if>
+        <sc-if value="{{ hasCaution }}" hint-placeholder-val="{{ false }}">
+          <div class="issues warn">
+            <b>Check before cutting</b>
+            <sc-for list="{{ cautions }}" as="w" hint-placeholder-count="1"><div>{{ w.t }}</div></sc-for>
+          </div>
+        </sc-if>
+        <sc-if value="{{ editing }}" hint-placeholder-val="{{ false }}">
+          <div class="row between editbar"><span>{{ editNote }}</span><button class="btn sm ghost" onClick="{{ cancelEdit }}" title="Keep what is on screen but stop editing the job-list part">Stop editing</button></div>
+        </sc-if>
+        <div class="row end">
+          <label class="f" style="width:104px;flex:none"><span>Part mark</span><input value="{{ mark }}" onChange="{{ onMark }}"></label>
+          <label class="f" style="width:64px;flex:none"><span>Qty</span><input type="number" min="1" value="{{ qty }}" onChange="{{ onQty }}"></label>
+          <button class="btn grow" style="height:36px" onClick="{{ addToJob }}" disabled="{{ invalid }}">{{ addLbl }}</button>
         </div>
-      </sc-if>
+        <sc-if value="{{ editing }}" hint-placeholder-val="{{ false }}">
+          <button class="btn sm ghost" style="align-self:flex-end" onClick="{{ addAsNew }}" disabled="{{ invalid }}">Add as a new part instead</button>
+        </sc-if>
+        <button class="btn primary two block" onClick="{{ dlIgs }}" disabled="{{ solidBusy }}">{{ igsLbl }}<small>this part — IGS file for TubesT</small></button>
+     </div>
     </div>
 
     <!-- WORK AREA -->
@@ -470,12 +436,11 @@
         <three-d-stage ref="{{ stageRef }}" name="{{ fileBase }}" background="#ECEEF1" autorotate="true"></three-d-stage>
         <div class="hud">
           <sc-if value="{{ hasSaddle }}" hint-placeholder-val="{{ false }}"><button onClick="{{ onGhost }}" style="{{ ghostBtnS }}">{{ ghostLbl }}</button></sc-if>
-          <button onClick="{{ onFit }}" style="{{ fitBtnS }}">Fit</button>
-          <button onClick="{{ onSpin }}" style="{{ spinBtnS }}">{{ spinLbl }}</button>
+          <button onClick="{{ onFit }}" style="{{ fitBtnS }}" title="Show the whole part again">Whole part</button>
         </div>
         <sc-if value="{{ showEndTags }}" hint-placeholder-val="{{ false }}">
-          <div class="tag" style="left:12px">◂ End A</div>
-          <div class="tag" style="right:12px">End B ▸</div>
+          <button class="tag" style="left:12px" onClick="{{ viewA }}" title="Zoom in on End A">◂ End A</button>
+          <button class="tag" style="right:12px" onClick="{{ viewB }}" title="Zoom in on End B">End B ▸</button>
         </sc-if>
       </div>
       <div class="band">
@@ -496,7 +461,7 @@
         </svg>
         <div class="bf">
           <span>A ▸ {{ endASpec }}</span>
-          <span>{{ holeChip }} · {{ stWt }}</span>
+          <span>{{ midSpec }}</span>
           <span>B ▸ {{ endBSpec }}</span>
         </div>
       </div>
@@ -505,19 +470,19 @@
           <div class="card">
             <div class="row between"><h2>How it works</h2><button class="btn x" onClick="{{ closeHelp }}">✕</button></div>
             <ol>
-              <li><b>Material</b> — pick the shape, size, cut length and grade.</li>
-              <li><b>End A</b> (left) — square, miter or saddle. Add a bevel or cope if needed.</li>
-              <li><b>End B</b> (right) — same choices.</li>
-              <li><b>Holes</b> — tap a common layout, or click the flat drawing.</li>
-              <li><b>Review</b> — download the STEP or DXF, or add the part to the job list.</li>
+              <li><b>Material</b> — pick the shape and size.</li>
+              <li><b>Cut length</b> — type it the way you read a tape: <span class="mono">12'-6 3/8</span>.</li>
+              <li><b>Ends</b> — each end is square unless you pick something else.</li>
+              <li><b>Holes</b> — tap a starting pattern, then change the numbers.</li>
+              <li><b>Download</b> the file for the laser, or <b>Add to job list</b> and download the whole job at once.</li>
             </ol>
             <dl>
-              <dt>Work point</dt><dd>Where lengths measure to. On a saddle end it is the header centerline.</dd>
-              <dt>Long / short point</dt><dd>The longest and shortest edges of an angled cut.</dd>
-              <dt>Flat program</dt><dd>The tube peeled open flat. The seam runs along the bottom of the part.</dd>
-              <dt>Set-on / set-through</dt><dd>Branch sits on the header OD, or drops through to the header ID.</dd>
-              <dt>Land</dt><dd>Flat left under a bevel (root face).</dd>
+              <dt>End A / End B</dt><dd>A is the left end in the pictures, B is the right. Tap End A or End B on the 3D view to zoom in on that end.</dd>
+              <dt>Saddle</dt><dd>A fish-mouth cut so the pipe fits against another pipe.</dd>
+              <dt>Cut length</dt><dd>Always end to end: the longest point of one end to the longest point of the other. Hole distances start from those same ends.</dd>
+              <dt>Degrees around</dt><dd>0° is the top of the pipe, 90° is the right side seen from End A. 180° is the seam.</dd>
               <dt>Gauge</dt><dd>Hole-line spacing across a flange, or from an angle's heel.</dd>
+              <dt>Job list</dt><dd>Open a part to change it and save over it. One click downloads every part for the laser.</dd>
             </dl>
             <button class="btn primary block" onClick="{{ closeHelp }}">Got it</button>
           </div>
@@ -533,15 +498,16 @@
           <label class="f" style="width:120px"><input value="{{ job }}" onChange="{{ onJob }}" placeholder="Job #"></label>
         </div>
         <sc-if value="{{ jobEmpty }}" hint-placeholder-val="{{ true }}">
-          <div class="empty">No parts yet. Build a part, then choose <b>Add to job list</b> on the Review step.</div>
+          <div class="empty">No parts yet. Build a part, then choose <b>Add to job list</b>.</div>
         </sc-if>
         <sc-for list="{{ jobParts }}" as="jp" hint-placeholder-count="0">
-          <div class="jp">
-            <div class="row between"><span class="m">{{ jp.mark }} <span style="color:var(--ink3);font-weight:500">{{ jp.qtyT }}</span></span><span class="note">{{ jp.wt }}</span></div>
+          <div class="jp" style="{{ jp.cardS }}">
+            <div class="row between"><span class="m">{{ jp.mark }}</span><span class="note">{{ jp.wt }}</span></div>
             <div class="d">{{ jp.desc }} · {{ jp.len }}</div>
             <div class="row" style="margin-top:4px">
-              <button class="btn sm grow" onClick="{{ jp.load }}">Open</button>
-              <button class="btn sm grow" onClick="{{ jp.dup }}">Duplicate</button>
+              <label class="row hint" title="How many of this part">Qty <input class="in" type="number" min="1" style="width:58px;height:30px" value="{{ jp.qty }}" onChange="{{ jp.sQty }}"></label>
+              <button class="btn sm grow" onClick="{{ jp.load }}" title="Load this part back into the form. Saving puts your changes over this part.">{{ jp.openLbl }}</button>
+              <button class="btn sm" onClick="{{ jp.dup }}" title="Add a copy of this part">Copy</button>
               <button class="btn sm x" onClick="{{ jp.del }}" title="Remove from job">✕</button>
             </div>
           </div>
@@ -569,108 +535,114 @@
           <div><span>Sticks to pull</span><span>{{ roSticks }}</span></div>
           <div><span>Weight</span><span>{{ roWt }}</span></div>
         </div>
+        <button class="btn primary two block" onClick="{{ dlJobFiles }}" disabled="{{ jobBusy }}">{{ jobFilesLbl }}<small>one IGS per part, quantity in the file name</small></button>
         <div class="g2">
-          <button class="btn primary" onClick="{{ dlJobTicket }}">Print job ticket</button>
+          <button class="btn" onClick="{{ dlJobTicket }}">Print job ticket</button>
           <button class="btn" onClick="{{ dlJobCsv }}">Cut list — CSV</button>
           <button class="btn" onClick="{{ newJob }}" title="Files this job under Past jobs and starts a clean one">Finish &amp; new job</button>
           <button class="btn ghost" onClick="{{ clearJob }}">Clear job</button>
         </div>
 
         <details>
-          <summary>Material cost</summary>
+          <summary>More</summary>
           <div class="d">
-            <div class="g3">
-              <label class="f"><span>Carbon $/lb</span><input value="{{ rateCT }}" onChange="{{ onRateC }}"></label>
-              <label class="f"><span>SS $/lb</span><input value="{{ rateST }}" onChange="{{ onRateS }}"></label>
-              <label class="f"><span>Alum $/lb</span><input value="{{ rateAT }}" onChange="{{ onRateA }}"></label>
-            </div>
-            <div class="row between"><span class="lbl" style="margin:0">Material ≈</span><span class="note">{{ roCost }}</span></div>
-          </div>
-        </details>
-        <details>
-          <summary>Past jobs · {{ archCount }}</summary>
-          <div class="d">
-            <sc-if value="{{ hasArch }}" hint-placeholder-val="{{ false }}">
-              <input class="in" value="{{ archQ }}" onChange="{{ onArchQ }}" placeholder="Search job #, mark or size">
-              <sc-for list="{{ archList }}" as="aj" hint-placeholder-count="0">
-                <div class="jp">
-                  <div class="row between"><span class="m">{{ aj.job }}</span><span class="note">{{ aj.date }}</span></div>
-                  <div class="d">{{ aj.sum }}</div>
-                  <div class="row"><button class="btn sm grow" onClick="{{ aj.open }}">Open</button><button class="btn sm x" onClick="{{ aj.del }}">✕</button></div>
-                </div>
-              </sc-for>
-            </sc-if>
-            <div class="g2"><button class="btn sm" onClick="{{ dlBackup }}">Backup to file</button><button class="btn sm" onClick="{{ doRestore }}">Restore</button></div>
-            <div class="hint">{{ archMsg }}</div>
-          </div>
-        </details>
-        <details>
-          <summary>Reload a part from its code</summary>
-          <div class="d">
-            <div class="row"><input class="in grow" value="{{ recallT }}" onChange="{{ onRecall }}" placeholder="Paste part code or scan QR"><button class="btn" onClick="{{ doRecall }}">Load</button></div>
-            <div class="hint">{{ recallMsg }}</div>
-          </div>
-        </details>
-        <details>
-          <summary>Auto-save files to a folder</summary>
-          <div class="d">
-            <sc-if value="{{ fsIdle }}" hint-placeholder-val="{{ true }}">
-              <button class="btn block" onClick="{{ linkFolder }}">Choose a folder or drive</button>
-              <div class="hint">Every file you download is also copied there, sorted by job number.</div>
-            </sc-if>
-            <sc-if value="{{ fsOk }}" hint-placeholder-val="{{ false }}">
-              <div class="row between"><span class="note">Linked ▸ {{ fsName }} ✓</span><button class="btn sm x" onClick="{{ unlinkFolder }}">✕</button></div>
-            </sc-if>
-            <sc-if value="{{ fsAsk }}" hint-placeholder-val="{{ false }}">
-              <button class="btn block" onClick="{{ reconnectFolder }}">Reconnect "{{ fsName }}"</button>
-            </sc-if>
-            <sc-if value="{{ fsNo }}" hint-placeholder-val="{{ false }}">
-              <div class="hint">Folder linking needs Chrome or Edge. In this browser, set your download folder instead.</div>
-            </sc-if>
-          </div>
-        </details>
-        <details>
-          <summary>Header hole program · {{ hbCount }}</summary>
-          <div class="d">
-            <div class="hint">One DXF with every branch opening along a header pipe. Clock 0° = top of header; 180° is the seam.</div>
-            <div class="g2">
-              <label class="f"><span>Header size</span><select data-sv="{{ hbNps }}" value="{{ hbNps }}" onChange="{{ sHbNps }}"><sc-for list="{{ hbNpsOpts }}" as="o" hint-placeholder-count="6"><option value="{{ o }}">{{ o }}″</option></sc-for></select></label>
-              <label class="f"><span>Schedule</span><select data-sv="{{ hbSch }}" value="{{ hbSch }}" onChange="{{ sHbSch }}"><sc-for list="{{ hbSchedOpts }}" as="o" hint-placeholder-count="4"><option value="{{ o }}">{{ o }}</option></sc-for></select></label>
-            </div>
-            <div class="seg">
-              <button class="grow" onClick="{{ hbSeatOn }}" style="{{ hbSeatOnS }}">Set-on</button>
-              <button class="grow" onClick="{{ hbSeatThru }}" style="{{ hbSeatThruS }}">Set-through</button>
-            </div>
-            <sc-for list="{{ hbList }}" as="hbr" hint-placeholder-count="0">
-              <div class="grp">
-                <div class="row between"><b>Branch {{ hbr.id }}</b><button class="btn sm x" onClick="{{ hbr.del }}">✕</button></div>
-                <div class="g2">
-                  <label class="f"><span>Size</span><select data-sv="{{ hbr.nps }}" value="{{ hbr.nps }}" onChange="{{ hbr.sNps }}"><sc-for list="{{ hbr.npsOpts }}" as="o" hint-placeholder-count="6"><option value="{{ o }}">{{ o }}″</option></sc-for></select></label>
-                  <label class="f"><span>Schedule</span><select data-sv="{{ hbr.sch }}" value="{{ hbr.sch }}" onChange="{{ hbr.sSch }}"><sc-for list="{{ hbr.schedOpts }}" as="o" hint-placeholder-count="4"><option value="{{ o }}">{{ o }}</option></sc-for></select></label>
-                </div>
+            <details>
+              <summary>Material cost</summary>
+              <div class="d">
                 <div class="g3">
-                  <label class="f"><span>Joint °</span><input value="{{ hbr.alphaT }}" onChange="{{ hbr.sAlpha }}"></label>
-                  <label class="f"><span>Clock °</span><input value="{{ hbr.azT }}" onChange="{{ hbr.sAz }}"></label>
-                  <label class="f"><span>From WP</span><input value="{{ hbr.distT }}" onChange="{{ hbr.sDist }}" placeholder="24 1/2"></label>
+                  <label class="f"><span>Carbon $/lb</span><input value="{{ rateCT }}" onChange="{{ onRateC }}"></label>
+                  <label class="f"><span>SS $/lb</span><input value="{{ rateST }}" onChange="{{ onRateS }}"></label>
+                  <label class="f"><span>Alum $/lb</span><input value="{{ rateAT }}" onChange="{{ onRateA }}"></label>
+                </div>
+                <div class="row between"><span class="lbl" style="margin:0">Material ≈</span><span class="note">{{ roCost }}</span></div>
+              </div>
+            </details>
+            <details>
+              <summary>Past jobs · {{ archCount }}</summary>
+              <div class="d">
+                <sc-if value="{{ hasArch }}" hint-placeholder-val="{{ false }}">
+                  <input class="in" value="{{ archQ }}" onChange="{{ onArchQ }}" placeholder="Search job #, mark or size">
+                  <sc-for list="{{ archList }}" as="aj" hint-placeholder-count="0">
+                    <div class="jp">
+                      <div class="row between"><span class="m">{{ aj.job }}</span><span class="note">{{ aj.date }}</span></div>
+                      <div class="d">{{ aj.sum }}</div>
+                      <div class="row"><button class="btn sm grow" onClick="{{ aj.open }}">Open</button><button class="btn sm x" onClick="{{ aj.del }}">✕</button></div>
+                    </div>
+                  </sc-for>
+                </sc-if>
+                <div class="g2"><button class="btn sm" onClick="{{ dlBackup }}">Backup to file</button><button class="btn sm" onClick="{{ doRestore }}">Restore</button></div>
+                <div class="hint">{{ archMsg }}</div>
+              </div>
+            </details>
+            <details>
+              <summary>Reload a part from its code</summary>
+              <div class="d">
+                <div class="row"><input class="in grow" value="{{ recallT }}" onChange="{{ onRecall }}" placeholder="Paste part code or scan QR"><button class="btn" onClick="{{ doRecall }}">Load</button></div>
+                <div class="hint">{{ recallMsg }}</div>
+              </div>
+            </details>
+            <details>
+              <summary>Auto-save files to a folder</summary>
+              <div class="d">
+                <sc-if value="{{ fsIdle }}" hint-placeholder-val="{{ true }}">
+                  <button class="btn block" onClick="{{ linkFolder }}">Choose a folder or drive</button>
+                  <div class="hint">Every file you download is also copied there, sorted by job number.</div>
+                </sc-if>
+                <sc-if value="{{ fsOk }}" hint-placeholder-val="{{ false }}">
+                  <div class="row between"><span class="note">Linked ▸ {{ fsName }} ✓</span><button class="btn sm x" onClick="{{ unlinkFolder }}">✕</button></div>
+                </sc-if>
+                <sc-if value="{{ fsAsk }}" hint-placeholder-val="{{ false }}">
+                  <button class="btn block" onClick="{{ reconnectFolder }}">Reconnect "{{ fsName }}"</button>
+                </sc-if>
+                <sc-if value="{{ fsNo }}" hint-placeholder-val="{{ false }}">
+                  <div class="hint">Folder linking needs Chrome or Edge. In this browser, set your download folder instead.</div>
+                </sc-if>
+              </div>
+            </details>
+            <details>
+              <summary>Header hole program · {{ hbCount }}</summary>
+              <div class="d">
+                <div class="hint">One DXF with every branch opening along a header pipe. 0° = top of header; 180° is the seam.</div>
+                <div class="g2">
+                  <label class="f"><span>Header size</span><select data-sv="{{ hbNps }}" value="{{ hbNps }}" onChange="{{ sHbNps }}"><sc-for list="{{ hbNpsOpts }}" as="o" hint-placeholder-count="6"><option value="{{ o }}">{{ o }}″</option></sc-for></select></label>
+                  <label class="f"><span>Schedule</span><select data-sv="{{ hbSch }}" value="{{ hbSch }}" onChange="{{ sHbSch }}"><sc-for list="{{ hbSchedOpts }}" as="o" hint-placeholder-count="4"><option value="{{ o }}">{{ o }}</option></sc-for></select></label>
+                </div>
+                <div class="seg">
+                  <button class="grow" onClick="{{ hbSeatOn }}" style="{{ hbSeatOnS }}">Set-on</button>
+                  <button class="grow" onClick="{{ hbSeatThru }}" style="{{ hbSeatThruS }}">Set-through</button>
+                </div>
+                <sc-for list="{{ hbList }}" as="hbr" hint-placeholder-count="0">
+                  <div class="grp">
+                    <div class="row between"><b>Branch {{ hbr.id }}</b><button class="btn sm x" onClick="{{ hbr.del }}">✕</button></div>
+                    <div class="g2">
+                      <label class="f"><span>Size</span><select data-sv="{{ hbr.nps }}" value="{{ hbr.nps }}" onChange="{{ hbr.sNps }}"><sc-for list="{{ hbr.npsOpts }}" as="o" hint-placeholder-count="6"><option value="{{ o }}">{{ o }}″</option></sc-for></select></label>
+                      <label class="f"><span>Schedule</span><select data-sv="{{ hbr.sch }}" value="{{ hbr.sch }}" onChange="{{ hbr.sSch }}"><sc-for list="{{ hbr.schedOpts }}" as="o" hint-placeholder-count="4"><option value="{{ o }}">{{ o }}</option></sc-for></select></label>
+                    </div>
+                    <div class="g3">
+                      <label class="f"><span>Joint °</span><input value="{{ hbr.alphaT }}" onChange="{{ hbr.sAlpha }}"></label>
+                      <label class="f"><span>Degrees around</span><input value="{{ hbr.azT }}" onChange="{{ hbr.sAz }}"></label>
+                      <label class="f"><span>From WP</span><input value="{{ hbr.distT }}" onChange="{{ hbr.sDist }}" placeholder="24 1/2"></label>
+                    </div>
+                  </div>
+                </sc-for>
+                <sc-if value="{{ hbPrevOn }}" hint-placeholder-val="{{ false }}">
+                  <svg viewBox="{{ hbPrev.vb }}" preserveAspectRatio="xMidYMid meet" style="width:100%;height:90px;background:var(--sunk);border:1px solid var(--line);border-radius:6px">
+                    <path d="{{ hbPrev.refP }}" stroke="#D3D9DF" stroke-width="{{ hbPrev.sw }}" fill="none"></path>
+                    <path d="{{ hbPrev.wpP }}" stroke="#9AA4AE" stroke-width="{{ hbPrev.sw }}" fill="none"></path>
+                    <path d="{{ hbPrev.holesP }}" fill="rgba(29,95,191,.10)" stroke="#1D5FBF" stroke-width="{{ hbPrev.sw }}"></path>
+                    <sc-for list="{{ hbPrev.lbls }}" as="bl" hint-placeholder-count="0"><text x="{{ bl.x }}" y="{{ bl.y }}" style="{{ bl.s }}">{{ bl.t }}</text></sc-for>
+                  </svg>
+                </sc-if>
+                <sc-for list="{{ hbWarns }}" as="hw" hint-placeholder-count="0"><div class="hint" style="color:var(--warn)">⚠ {{ hw }}</div></sc-for>
+                <div class="row">
+                  <button class="btn sm" onClick="{{ hbAdd }}">+ Branch</button>
+                  <sc-if value="{{ hbHasList }}" hint-placeholder-val="{{ false }}">
+                    <button class="btn sm primary grow" onClick="{{ hbDxf }}">Header holes — DXF</button>
+                    <button class="btn sm x" onClick="{{ hbClear }}">✕</button>
+                  </sc-if>
                 </div>
               </div>
-            </sc-for>
-            <sc-if value="{{ hbPrevOn }}" hint-placeholder-val="{{ false }}">
-              <svg viewBox="{{ hbPrev.vb }}" preserveAspectRatio="xMidYMid meet" style="width:100%;height:90px;background:var(--sunk);border:1px solid var(--line);border-radius:6px">
-                <path d="{{ hbPrev.refP }}" stroke="#D3D9DF" stroke-width="{{ hbPrev.sw }}" fill="none"></path>
-                <path d="{{ hbPrev.wpP }}" stroke="#9AA4AE" stroke-width="{{ hbPrev.sw }}" fill="none"></path>
-                <path d="{{ hbPrev.holesP }}" fill="rgba(29,95,191,.10)" stroke="#1D5FBF" stroke-width="{{ hbPrev.sw }}"></path>
-                <sc-for list="{{ hbPrev.lbls }}" as="bl" hint-placeholder-count="0"><text x="{{ bl.x }}" y="{{ bl.y }}" style="{{ bl.s }}">{{ bl.t }}</text></sc-for>
-              </svg>
-            </sc-if>
-            <sc-for list="{{ hbWarns }}" as="hw" hint-placeholder-count="0"><div class="hint" style="color:var(--warn)">⚠ {{ hw }}</div></sc-for>
-            <div class="row">
-              <button class="btn sm" onClick="{{ hbAdd }}">+ Branch</button>
-              <sc-if value="{{ hbHasList }}" hint-placeholder-val="{{ false }}">
-                <button class="btn sm primary grow" onClick="{{ hbDxf }}">Header holes — DXF</button>
-                <button class="btn sm x" onClick="{{ hbClear }}">✕</button>
-              </sc-if>
-            </div>
+            </details>
           </div>
         </details>
       </div>
