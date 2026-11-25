@@ -121,6 +121,8 @@
           </div>
         </sc-if>
         <div class="note">{{ stockEcho }}</div>
+        <div class="lbl" style="margin:12px 0 6px">Common parts — tap one, then set the size and length</div>
+        <div class="chips"><sc-for list="{{ starters }}" as="sp" hint-placeholder-count="4"><button class="chip" onClick="{{ sp.go }}" title="{{ sp.tip }}">{{ sp.l }}</button></sc-for></div>
       </div>
 
       <!-- LENGTH -->
@@ -128,6 +130,7 @@
         <h3>Cut length</h3>
         <input class="in len" value="{{ lenT }}" onChange="{{ onLen }}" placeholder="12'-6 3/8">
         <div class="hint">= <span style="{{ lenEchoStyle }}">{{ lenEcho }}</span></div>
+        <div class="hint">Feet need a tick: <span class="mono">10'-6</span>. A number by itself is inches: <span class="mono">126</span>.</div>
         <sc-if value="{{ hasLenNote }}" hint-placeholder-val="{{ false }}"><div class="hint">{{ lenNote }}</div></sc-if>
       </div>
 
@@ -211,7 +214,7 @@
                     <label class="f"><span>Angle ° seen from the side</span><input type="number" step="0.5" value="{{ ec.tvT }}" onChange="{{ ec.sTv }}"></label>
                     <label class="f"><span>Angle ° seen from above</span><input type="number" step="0.5" value="{{ ec.tpT }}" onChange="{{ ec.sTp }}"></label>
                   </div>
-                  <div class="hint">Angle off square. Fill in one box for a normal miter, both for a compound cut.</div>
+                  <div class="hint">Angle off square. Fill in one box for a normal miter, both for a compound cut. A plus angle makes the top the long side (seen from the side) or the right side long (seen from above); a minus angle flips it.</div>
                 </div>
               </sc-if>
             </sc-if>
@@ -489,7 +492,7 @@
           <path d="{{ outCP }}" fill="#EEF1F4" stroke="#14181D" stroke-width="{{ sw }}"></path>
           <path d="{{ holesP }}" fill="#FFFFFF" stroke="#1D5FBF" stroke-width="{{ sw }}"></path>
           <sc-if value="{{ hovOn }}" hint-placeholder-val="{{ false }}"><path d="{{ hovP }}" fill="none" stroke="#C2410C" stroke-width="{{ swThin }}" stroke-dasharray="{{ dash }}" pointer-events="none"></path></sc-if>
-          <sc-for list="{{ bandLbls }}" as="bl" hint-placeholder-count="2"><text x="{{ bl.x }}" y="{{ bl.y }}" style="{{ bl.s }}">{{ bl.t }}</text></sc-for>
+          <sc-for list="{{ bandLbls }}" as="bl" hint-placeholder-count="2"><text transform="{{ bl.tf }}" style="{{ bl.s }}">{{ bl.t }}</text></sc-for>
         </svg>
         <div class="bf">
           <span>A ▸ {{ endASpec }}</span>
@@ -537,7 +540,7 @@
           <div class="card">
             <div class="row between"><h2>How it works</h2><button class="btn x" onClick="{{ closeHelp }}">✕</button></div>
             <ol>
-              <li><b>Material</b> — pick the shape and size.</li>
+              <li><b>Material</b> — pick the shape and size. <b>Common parts</b> under it set the ends and holes for everyday jobs in one tap.</li>
               <li><b>Cut length</b> — type it the way you read a tape: <span class="mono">12'-6 3/8</span>.</li>
               <li><b>Ends</b> — each end is square unless you pick something else.</li>
               <li><b>Holes</b> — tap a starting pattern, then change the numbers.</li>
@@ -700,7 +703,7 @@
                     <path d="{{ hbPrev.refP }}" stroke="#D3D9DF" stroke-width="{{ hbPrev.sw }}" fill="none"></path>
                     <path d="{{ hbPrev.wpP }}" stroke="#9AA4AE" stroke-width="{{ hbPrev.sw }}" fill="none"></path>
                     <path d="{{ hbPrev.holesP }}" fill="rgba(29,95,191,.10)" stroke="#1D5FBF" stroke-width="{{ hbPrev.sw }}"></path>
-                    <sc-for list="{{ hbPrev.lbls }}" as="bl" hint-placeholder-count="0"><text x="{{ bl.x }}" y="{{ bl.y }}" style="{{ bl.s }}">{{ bl.t }}</text></sc-for>
+                    <sc-for list="{{ hbPrev.lbls }}" as="bl" hint-placeholder-count="0"><text transform="{{ bl.tf }}" style="{{ bl.s }}">{{ bl.t }}</text></sc-for>
                   </svg>
                 </sc-if>
                 <sc-for list="{{ hbWarns }}" as="hw" hint-placeholder-count="0"><div class="hint" style="color:var(--warn)">⚠ {{ hw }}</div></sc-for>

@@ -333,6 +333,31 @@ class Component extends DCLogic {
     return E;
   }
 
+  /** One end in plain shop words, for the check card: "fish-mouth to sit on 6″ SCH 40 pipe at 90°". */
+  endWords(E, sec) {
+    if (!E) return '—';
+    const out = [], deg = (x) => (Math.round(Math.abs(x) * 100) / 100) + '°';
+    if (sec.kind === 'round') {
+      if (E.mode === 'miter' && E.ma) {
+        const t = ((Math.round(E.mr * 180 / Math.PI) % 360) + 360) % 360, flip = E.ma < 0 ? (t + 180) % 360 : t;
+        out.push('Miter ' + deg(E.ma) + ' off square, long side ' + ({ 0: 'on top', 90: 'on the right (seen from End A)', 180: 'on the bottom', 270: 'on the left (seen from End A)' }[flip] || 'turned ' + flip + '° from top'));
+      } else if (E.mode === 'saddle' && E.sd) {
+        const a = Math.round(E.sd.alpha * 1800 / Math.PI) / 10, roll = Math.round(E.sd.roll * 180 / Math.PI);
+        out.push('Fish-mouth to ' + (E.sd.seat === 'on' ? 'sit on' : 'go through') + ' ' + (E.sd.custom ? 'a ' + (+E.sd.hod.toFixed(3)) + '″ OD pipe or tube' : E.sd.N + '″ ' + this.schedLabel(E.sd.S) + ' pipe') + (a === 90 ? ', square to it (a tee)' : ' at ' + a + '°') + (roll ? ', rolled ' + roll + '°' : ''));
+      } else out.push('Square cut');
+    } else {
+      if (!E.tv && !E.tp) out.push('Square cut');
+      else {
+        if (E.tv) out.push('Miter ' + deg(E.tv) + ' seen from the side, ' + (E.tv > 0 ? 'top' : 'bottom') + ' is the long side');
+        if (E.tp) out.push((E.tv ? 'and ' : 'Miter ') + deg(E.tp) + ' seen from above, ' + (E.tp > 0 ? 'right' : 'left') + ' side is long');
+      }
+      if (E.ct) out.push('top flange coped ' + this.fmtIn(E.ct.c) + ' long × ' + this.fmtIn(E.ct.dc) + ' deep');
+      if (E.cb) out.push('bottom flange coped ' + this.fmtIn(E.cb.c) + ' long × ' + this.fmtIn(E.cb.dc) + ' deep');
+      if (E.rat && E.rat !== 'NONE') out.push('weld access hole ' + ({ TOP: 'at the top', BOT: 'at the bottom', BOTH: 'top and bottom' }[E.rat] || ''));
+    }
+    if (E.bv) out.push('weld bevel ' + E.bv + '° (set by the operator)');
+    return out.join(', ');
+  }
   endSpecText(E, sec) {
     const s = [];
     if (sec.kind === 'round') {
@@ -2139,7 +2164,7 @@ class Component extends DCLogic {
         stock: this.famLabel() + ' \u00B7 ' + c.sec.label + ' \u00B7 ' + this.matRec().label,
         len: this.fmtFtIn(c.OAL || c.L) + '  (' + (c.OAL || c.L || 0).toFixed(3) + '\u2033)',
         sp: !c.invalid && Math.abs(c.LP - c.SP) > 1 / 64 ? this.fmtFtIn(c.SP) : '',
-        endA: c.A ? this.endSpecText(c.A, c.sec) : '\u2014', endB: c.B ? this.endSpecText(c.B, c.sec) : '\u2014',
+        endA: c.A ? this.endWords(c.A, c.sec) : '\u2014', endB: c.B ? this.endWords(c.B, c.sec) : '\u2014',
         holes: Object.entries(by).map(([k, v]) => v + ' \u00D7 ' + k).join(', ') || 'None',
         wt: Math.round(c.wt) + ' lb each',
         bevel: !!((c.A && c.A.bv) || (c.B && c.B.bv)),
@@ -3088,6 +3113,9 @@ class Component extends DCLogic {
     const errList = c.warns.filter(w => w.lvl === 'err');
     const markBad = this.formIssues().join(' '), moreErr = (c.errCount || 0) - errList.length;
     const fsOn = !!st.fsName && this._fsSupported(), rv = st.review ? this.reviewInfo(st.review) : null;
+    // Labels on the flat drawings are sized in inches (a fraction of an inch tall). A browser will not draw
+    // text that small, so each label is set at 10 px and scaled down into place instead.
+    const drawLbl = (bl) => { const m = /([\d.]+)px/.exec((bl.s && bl.s.font) || ''), k = (m ? parseFloat(m[1]) : 1) * 2 / 10; return Object.assign({}, bl, { tf: 'translate(' + bl.x + ' ' + bl.y + ') scale(' + k + ')', s: Object.assign({}, bl.s, { font: ((bl.s && bl.s.font) || '500 10px monospace').replace(/[\d.]+px/, '10px') }) }); };
     // The line under the save button ("Saved ...") belongs to the part it was written for: it goes away as
     // soon as anything on the form changes, so an old "Saved" is never read as covering the part now on screen.
     const noteKey = c.key + '|' + st.mark + '|' + st.qty + '|' + st.job;
@@ -3099,6 +3127,116 @@ class Component extends DCLogic {
     const oneWall = c.warns.some(w => /ONE wall/.test(w.t));
     const bevOn = ['A', 'B'].filter(k => st.ends[k].wantBevel);
     const matShort = { A36: 'A36', A992: 'A992', 'A572-50': 'A572-50', A500B: 'A500-B', A53B: 'A53-B', A106B: 'A106-B', A588: 'A588', '304L': '304L SS', '316L': '316L SS', AL6061: '6061 alum' };
+
+    const recipesList = (() => {
+        const Lr = (!c.invalid && c.L > 0) ? c.x1 - c.x0 : 120;
+        // each pattern also carries its hole sets (.ps), so a "common part" can start from the same pattern
+        const addR = (ps) => Object.assign(() => this.setState(s => {
+          let gi = s.gid;
+          const gs = ps.map(p => Object.assign(Component.defGroup(gi++, s.family), p));
+          return { wantHoles: true, step: 4, gid: gi, groups: (s.wantHoles ? s.groups : []).concat(gs) };
+        }), { ps });
+        const spreadR = (p, m) => { const n = Math.max(1, Math.floor((Lr - 2 * m) / p) + 1); return { nT: String(n), pT: this.fmtTok(p), x0T: this.fmtTok((Lr - p * (n - 1)) / 2), xsT: '' }; };
+        const midR = { nT: '1', x0T: this.fmtTok(Lr / 2), xsT: '' };
+        const brFor = (want) => { if (st.family !== 'pipe') return want; const hi = npsOpts.indexOf(st.pnps); let i2 = npsOpts.indexOf(want); if (hi > 0 && (i2 < 0 || i2 >= hi)) i2 = hi - 1; return i2 >= 0 ? npsOpts[i2] : npsOpts[0]; };
+        const dSec = (c.sec && c.sec.d) || 12;
+        const gStd = (face) => { const v = this.stdGauge({ face }); return v != null ? this.fmtTok(v) : null; };
+        if (isRoundFam) return [
+          { l: 'One hole on top', tip: 'One hole at 0\u00B0, 6\u2033 from end A. Set the size, distance and degrees after.', go: addR([{ type: 'cust', diaT: '1', refEnd: 'A', x0T: '6', nT: '1', xsT: '', azT: '0', aznT: '1' }]) },
+          { l: 'Row along the top', tip: 'Holes at 0\u00B0 every 12\u2033, centered on the cut length \u2014 header or manifold outlets.', go: addR([Object.assign({ type: 'cust', diaT: '1', azT: '0', aznT: '1' }, spreadR(12, 6))]) },
+          { l: 'Straight through', tip: 'Same hole on both sides (90\u00B0 and 270\u00B0), 6\u2033 from end A \u2014 pins, bolts, rods.', go: addR([{ type: 'cust', diaT: '13/16', refEnd: 'A', x0T: '6', nT: '1', xsT: '', azT: '90', aznT: '2', azpT: '180' }]) },
+          { l: '4 around', tip: '4 holes around the pipe at mid-length, starting 45\u00B0 off top so none land on the seam.', go: addR([Object.assign({ type: 'cust', diaT: '1', azT: '45', aznT: '4', azpT: '90' }, midR)]) }];
+        if (st.family === 'hss') {
+          const h1 = (face, end, d, x, off) => ({ face, type: 'cust', diaT: d, refEnd: end, x0T: x, nT: '1', xsT: '', offT: off || '0' });
+          const dOff = this.fmtTok(Math.max(.5, ((c.sec && c.sec.B) || 4) / 4));
+          return [
+            { l: 'Through hole \u2014 end A', tip: '\u00D89/16 (1/2\u2033 bolt) through both side walls, 1 1/2\u2033 from end A. The bottom face centerline is the program seam, so through holes go side to side.', go: addR([h1('L', 'A', '9/16', '1 1/2'), h1('R', 'A', '9/16', '1 1/2')]) },
+            { l: 'Through holes \u2014 both ends', tip: '\u00D89/16 through both side walls, 1 1/2\u2033 from each end.', go: addR([Object.assign(h1('L', 'A', '9/16', '1 1/2'), { both: true }), Object.assign(h1('R', 'A', '9/16', '1 1/2'), { both: true })]) },
+            { l: 'Holes every 12\u2033 \u2014 top', tip: '\u00D89/16 down the top face every 12\u2033, centered on the length.', go: addR([Object.assign({ face: 'T', type: 'cust', diaT: '9/16', offT: '0' }, spreadR(12, 6))]) },
+            { l: 'Drain holes \u2014 bottom', tip: '\u00D83/8 on the bottom face, 1\u2033 from each end, set off center because the bottom centerline is the program seam \u2014 galvanized or outdoor tube.', go: addR([Object.assign(h1('B', 'A', '3/8', '1', dOff), { both: true })]) },
+            { l: 'Slots \u2014 both ends', tip: '9/16 \u00D7 1 1/2\u2033 slots along the length on the top face, 2\u2033 from each end.', go: addR([Object.assign(h1('T', 'A', '9/16', '2'), { type: 'slot', sllT: '1 1/2', ax: 'x', both: true })]) }];
+        }
+        if (st.family === 'beam' || st.family === 'chan') {
+          const isC = st.family === 'chan';
+          const ny = dSec >= 18 ? 4 : dSec >= 12 ? 3 : dSec >= 8 ? 2 : 1;
+          const y0 = this.fmtTok((dSec - (ny - 1) * 3) / 2);
+          const web = { face: 'web', bolt: '3/4', type: 'std', x0T: '2', pT: '3', nT: '1', xsT: '', autoY: true, nyT: String(ny), pyT: '3' };
+          const flg = { face: 'tf', bolt: '3/4', type: 'std', autoG: true, amode: 'gauge', gT: gStd('tf') || (isC ? '1 1/2' : '5 1/2'), x0T: '2', pT: '3', nT: '2', xsT: '' };
+          const webTip = ny + ' bolt' + (ny > 1 ? 's' : '') + ' in a vertical line, 3\u2033 apart, centered on the web, 2\u2033 from the end. 3/4\u2033 bolts.';
+          const out = [
+            { l: 'Web bolts \u2014 both ends', tip: 'Shear connection at each end: ' + webTip, go: addR([Object.assign({}, web, { both: true })]) },
+            { l: 'Web bolts \u2014 one end', tip: webTip, go: addR([Object.assign({}, web)]) }];
+          if (!isC) out.push({ l: 'Flange bolts \u2014 both ends', tip: '4 bolts in the top flange at each end (2 along \u00D7 2 across at the standard gauge) \u2014 cap, base or splice plates. Tap Both flanges to add the bottom.', go: addR([Object.assign({}, flg, { both: true })]) });
+          out.push({ l: 'Web holes every 12\u2033', tip: 'One row on the web centerline every 12\u2033, centered on the length.', go: addR([Object.assign({ face: 'web', bolt: isC ? '1/2' : '3/4', type: 'std', autoY: true, nyT: '1' }, spreadR(12, 6))]) });
+          out.push({ l: 'Flange holes every 12\u2033', tip: 'Top flange at the standard gauge, every 12\u2033, centered on the length \u2014 grating, decking, rails.', go: addR([Object.assign({ face: 'tf', bolt: isC ? '1/2' : '3/4', type: 'std', autoG: true, amode: 'gauge', gT: flg.gT }, spreadR(12, 6))]) });
+          return out;
+        }
+        const ga = gStd('vleg') || '1 3/4';
+        const a1 = (end, n) => ({ face: 'vleg', bolt: '3/4', type: 'std', refEnd: end, x0T: '1 1/2', pT: '3', nT: String(n), xsT: '', gT: ga });
+        return [
+          { l: '1 bolt \u2014 both ends', tip: 'One 3/4\u2033 bolt hole on the standard gauge line, 1 1/2\u2033 from each end \u2014 braces and struts.', go: addR([Object.assign(a1('A', 1), { both: true })]) },
+          { l: '2 bolts \u2014 both ends', tip: 'Two 3/4\u2033 bolt holes 3\u2033 apart on the gauge line at each end.', go: addR([Object.assign(a1('A', 2), { both: true })]) },
+          { l: '2 bolts \u2014 end A only', tip: 'Two 3/4\u2033 bolt holes 3\u2033 apart on the gauge line, starting 1 1/2\u2033 from end A \u2014 clips.', go: addR([a1('A', 2)]) },
+          { l: 'Holes every 12\u2033', tip: 'Holes on the gauge line every 12\u2033, centered on the length \u2014 ledger and shelf angles.', go: addR([Object.assign({ face: 'vleg', bolt: '3/4', type: 'std', gT: ga }, spreadR(12, 6))]) }];
+      })();
+
+    // ---- COMMON PARTS: one tap sets both ends and the holes for a part the shop makes every week.
+    // The size, grade and length on the form stay as they are. Anything already set on the ends or
+    // holes is replaced, so it asks first when there is something to lose.
+    const pat = (label) => { const r0 = recipesList.find(q => q.l === label); return r0 && r0.go.ps ? r0.go.ps : []; };
+    const startWith = (endA, endB, holes) => () => {
+      const s0 = this.state, busy = s0.wantHoles || ['A', 'B'].some(k => s0.ends[k].mode !== 'sq' || s0.ends[k].wantCope || s0.ends[k].wantBevel);
+      if (busy && !confirm('Start this common part?\n\nThe end cuts and holes on the form now will be replaced. Size, grade and length stay.')) return;
+      this.setState(s => {
+        let gi = s.gid;
+        const gs = (holes || []).map(q => Object.assign(Component.defGroup(gi++, s.family), q));
+        return { ends: { A: Object.assign(Component.defEnd(), endA), B: Object.assign(Component.defEnd(), endB) }, wantHoles: gs.length > 0, gid: gs.length ? gi : s.gid + 1, groups: gs.length ? gs : [Component.newGroup(s.gid, s.family)] };
+      });
+    };
+    // a saddle that starts on a pipe the same size as the part (always a valid fit); the user then picks what it really fits against
+    const sad = st.family === 'tube' ? { mode: 'saddle', sdHT: 'cust', sdHodT: st.todT, sdHwT: st.twallT, sdAT: '90', sdSeat: 'on' } : { mode: 'saddle', sdHT: 'nps', sdN: st.pnps, sdS: st.psch, sdAT: '90', sdSeat: 'on' };
+    const cope = { wantCope: true, ct: true, cb: false, tcT: '4', tdT: '1 1/2', trT: '1/2', rat: 'NONE' };
+    const starters = ({
+      pipe: [
+        { l: 'Straight cut', tip: 'Cut to length, square both ends, no holes.', go: startWith({}, {}, []) },
+        { l: 'Branch / stub-in', tip: 'One end fish-mouthed to sit on another pipe, the other end square. Then pick the pipe it fits against.', go: startWith(sad, {}, []) },
+        { l: 'Brace between two pipes', tip: 'Fish-mouth both ends — a brace or cross piece between two pipes.', go: startWith(sad, sad, []) },
+        { l: 'Miter — 45° one end', tip: 'One end cut 45°, long side on top — half of a 90° mitered turn.', go: startWith({}, { mode: 'miter', maT: '45', mrT: '0' }, []) },
+        { l: 'Header with outlets', tip: 'Square both ends with a row of holes along the top every 12″. Then set the hole size.', go: startWith({}, {}, pat('Row along the top')) }
+      ],
+      tube: [
+        { l: 'Straight cut', tip: 'Cut to length, square both ends, no holes.', go: startWith({}, {}, []) },
+        { l: 'Handrail post', tip: 'Top end fish-mouthed to sit under a rail of the same tube, bottom square.', go: startWith({}, sad, []) },
+        { l: 'Rail between posts', tip: 'Fish-mouth both ends to fit between two posts of the same tube.', go: startWith(sad, sad, []) },
+        { l: 'Miter — 45° one end', tip: 'One end cut 45°, long side on top.', go: startWith({}, { mode: 'miter', maT: '45', mrT: '0' }, []) },
+        { l: 'Pin hole straight through', tip: 'Square both ends with one hole through both sides, 6″ from End A.', go: startWith({}, {}, pat('Straight through')) }
+      ],
+      hss: [
+        { l: 'Straight cut', tip: 'Cut to length, square both ends, no holes.', go: startWith({}, {}, []) },
+        { l: 'Frame side — 45° both ends', tip: 'Both ends mitered 45° with the top long — one side of a picture frame.', go: startWith({ mode: 'ang', tvT: '45', tpT: '0' }, { mode: 'ang', tvT: '45', tpT: '0' }, []) },
+        { l: 'Leg or post — holes both ends', tip: 'Square both ends, a through hole 1 1/2″ from each end.', go: startWith({}, {}, pat('Through holes — both ends')) },
+        { l: 'Rail — holes every 12″', tip: 'Square both ends, holes down the top every 12″.', go: startWith({}, {}, pat('Holes every 12″ — top')) },
+        { l: 'Outdoor tube — drain holes', tip: 'Square both ends with a drain hole near each end on the bottom.', go: startWith({}, {}, pat('Drain holes — bottom')) }
+      ],
+      beam: [
+        { l: 'Straight cut', tip: 'Cut to length, square both ends, no holes.', go: startWith({}, {}, []) },
+        { l: 'Beam — web bolts both ends', tip: 'Square ends with a bolted shear connection in the web at each end.', go: startWith({}, {}, pat('Web bolts — both ends')) },
+        { l: 'Coped beam — web bolts', tip: 'Top flange coped at both ends to frame into a girder, web bolts at both ends.', go: startWith(cope, cope, pat('Web bolts — both ends')) },
+        { l: 'Cap or base — flange bolts', tip: 'Square ends with four bolts in the top flange at each end.', go: startWith({}, {}, pat('Flange bolts — both ends')) }
+      ],
+      chan: [
+        { l: 'Straight cut', tip: 'Cut to length, square both ends, no holes.', go: startWith({}, {}, []) },
+        { l: 'Channel — web bolts both ends', tip: 'Square ends with web bolts at each end.', go: startWith({}, {}, pat('Web bolts — both ends')) },
+        { l: 'Stringer — web holes every 12″', tip: 'Square ends with one row of web holes every 12″.', go: startWith({}, {}, pat('Web holes every 12″')) }
+      ],
+      angl: [
+        { l: 'Straight cut', tip: 'Cut to length, square both ends, no holes.', go: startWith({}, {}, []) },
+        { l: 'Brace — 1 bolt each end', tip: 'One bolt hole on the gauge line at each end.', go: startWith({}, {}, pat('1 bolt — both ends')) },
+        { l: 'Brace — 2 bolts each end', tip: 'Two bolt holes on the gauge line at each end.', go: startWith({}, {}, pat('2 bolts — both ends')) },
+        { l: 'Clip — 2 bolts one end', tip: 'Two bolt holes at End A only.', go: startWith({}, {}, pat('2 bolts — end A only')) },
+        { l: 'Shelf angle — holes every 12″', tip: 'Holes on the gauge line every 12″.', go: startWith({}, {}, pat('Holes every 12″')) }
+      ]
+    })[st.family] || [];
 
     return {
       stepN: st.step,
@@ -3196,56 +3334,8 @@ class Component extends DCLogic {
         dd += 'M' + st.hovGx + ' ' + (st.hovGy - r0 * 2) + 'V' + (st.hovGy + r0 * 2);
         return dd;
       })() : '',
-      recipes: (() => {
-        const Lr = (!c.invalid && c.L > 0) ? c.x1 - c.x0 : 120;
-        const addR = (ps) => () => this.setState(s => {
-          let gi = s.gid;
-          const gs = ps.map(p => Object.assign(Component.defGroup(gi++, s.family), p));
-          return { wantHoles: true, step: 4, gid: gi, groups: (s.wantHoles ? s.groups : []).concat(gs) };
-        });
-        const spreadR = (p, m) => { const n = Math.max(1, Math.floor((Lr - 2 * m) / p) + 1); return { nT: String(n), pT: this.fmtTok(p), x0T: this.fmtTok((Lr - p * (n - 1)) / 2), xsT: '' }; };
-        const midR = { nT: '1', x0T: this.fmtTok(Lr / 2), xsT: '' };
-        const brFor = (want) => { if (st.family !== 'pipe') return want; const hi = npsOpts.indexOf(st.pnps); let i2 = npsOpts.indexOf(want); if (hi > 0 && (i2 < 0 || i2 >= hi)) i2 = hi - 1; return i2 >= 0 ? npsOpts[i2] : npsOpts[0]; };
-        const dSec = (c.sec && c.sec.d) || 12;
-        const gStd = (face) => { const v = this.stdGauge({ face }); return v != null ? this.fmtTok(v) : null; };
-        if (isRoundFam) return [
-          { l: 'One hole on top', tip: 'One hole at 0\u00B0, 6\u2033 from end A. Set the size, distance and degrees after.', go: addR([{ type: 'cust', diaT: '1', refEnd: 'A', x0T: '6', nT: '1', xsT: '', azT: '0', aznT: '1' }]) },
-          { l: 'Row along the top', tip: 'Holes at 0\u00B0 every 12\u2033, centered on the cut length \u2014 header or manifold outlets.', go: addR([Object.assign({ type: 'cust', diaT: '1', azT: '0', aznT: '1' }, spreadR(12, 6))]) },
-          { l: 'Straight through', tip: 'Same hole on both sides (90\u00B0 and 270\u00B0), 6\u2033 from end A \u2014 pins, bolts, rods.', go: addR([{ type: 'cust', diaT: '13/16', refEnd: 'A', x0T: '6', nT: '1', xsT: '', azT: '90', aznT: '2', azpT: '180' }]) },
-          { l: '4 around', tip: '4 holes around the pipe at mid-length, starting 45\u00B0 off top so none land on the seam.', go: addR([Object.assign({ type: 'cust', diaT: '1', azT: '45', aznT: '4', azpT: '90' }, midR)]) }];
-        if (st.family === 'hss') {
-          const h1 = (face, end, d, x, off) => ({ face, type: 'cust', diaT: d, refEnd: end, x0T: x, nT: '1', xsT: '', offT: off || '0' });
-          const dOff = this.fmtTok(Math.max(.5, ((c.sec && c.sec.B) || 4) / 4));
-          return [
-            { l: 'Through hole \u2014 end A', tip: '\u00D89/16 (1/2\u2033 bolt) through both side walls, 1 1/2\u2033 from end A. The bottom face centerline is the program seam, so through holes go side to side.', go: addR([h1('L', 'A', '9/16', '1 1/2'), h1('R', 'A', '9/16', '1 1/2')]) },
-            { l: 'Through holes \u2014 both ends', tip: '\u00D89/16 through both side walls, 1 1/2\u2033 from each end.', go: addR([Object.assign(h1('L', 'A', '9/16', '1 1/2'), { both: true }), Object.assign(h1('R', 'A', '9/16', '1 1/2'), { both: true })]) },
-            { l: 'Holes every 12\u2033 \u2014 top', tip: '\u00D89/16 down the top face every 12\u2033, centered on the length.', go: addR([Object.assign({ face: 'T', type: 'cust', diaT: '9/16', offT: '0' }, spreadR(12, 6))]) },
-            { l: 'Drain holes \u2014 bottom', tip: '\u00D83/8 on the bottom face, 1\u2033 from each end, set off center because the bottom centerline is the program seam \u2014 galvanized or outdoor tube.', go: addR([Object.assign(h1('B', 'A', '3/8', '1', dOff), { both: true })]) },
-            { l: 'Slots \u2014 both ends', tip: '9/16 \u00D7 1 1/2\u2033 slots along the length on the top face, 2\u2033 from each end.', go: addR([Object.assign(h1('T', 'A', '9/16', '2'), { type: 'slot', sllT: '1 1/2', ax: 'x', both: true })]) }];
-        }
-        if (st.family === 'beam' || st.family === 'chan') {
-          const isC = st.family === 'chan';
-          const ny = dSec >= 18 ? 4 : dSec >= 12 ? 3 : dSec >= 8 ? 2 : 1;
-          const y0 = this.fmtTok((dSec - (ny - 1) * 3) / 2);
-          const web = { face: 'web', bolt: '3/4', type: 'std', x0T: '2', pT: '3', nT: '1', xsT: '', autoY: true, nyT: String(ny), pyT: '3' };
-          const flg = { face: 'tf', bolt: '3/4', type: 'std', autoG: true, amode: 'gauge', gT: gStd('tf') || (isC ? '1 1/2' : '5 1/2'), x0T: '2', pT: '3', nT: '2', xsT: '' };
-          const webTip = ny + ' bolt' + (ny > 1 ? 's' : '') + ' in a vertical line, 3\u2033 apart, centered on the web, 2\u2033 from the end. 3/4\u2033 bolts.';
-          const out = [
-            { l: 'Web bolts \u2014 both ends', tip: 'Shear connection at each end: ' + webTip, go: addR([Object.assign({}, web, { both: true })]) },
-            { l: 'Web bolts \u2014 one end', tip: webTip, go: addR([Object.assign({}, web)]) }];
-          if (!isC) out.push({ l: 'Flange bolts \u2014 both ends', tip: '4 bolts in the top flange at each end (2 along \u00D7 2 across at the standard gauge) \u2014 cap, base or splice plates. Tap Both flanges to add the bottom.', go: addR([Object.assign({}, flg, { both: true })]) });
-          out.push({ l: 'Web holes every 12\u2033', tip: 'One row on the web centerline every 12\u2033, centered on the length.', go: addR([Object.assign({ face: 'web', bolt: isC ? '1/2' : '3/4', type: 'std', autoY: true, nyT: '1' }, spreadR(12, 6))]) });
-          out.push({ l: 'Flange holes every 12\u2033', tip: 'Top flange at the standard gauge, every 12\u2033, centered on the length \u2014 grating, decking, rails.', go: addR([Object.assign({ face: 'tf', bolt: isC ? '1/2' : '3/4', type: 'std', autoG: true, amode: 'gauge', gT: flg.gT }, spreadR(12, 6))]) });
-          return out;
-        }
-        const ga = gStd('vleg') || '1 3/4';
-        const a1 = (end, n) => ({ face: 'vleg', bolt: '3/4', type: 'std', refEnd: end, x0T: '1 1/2', pT: '3', nT: String(n), xsT: '', gT: ga });
-        return [
-          { l: '1 bolt \u2014 both ends', tip: 'One 3/4\u2033 bolt hole on the standard gauge line, 1 1/2\u2033 from each end \u2014 braces and struts.', go: addR([Object.assign(a1('A', 1), { both: true })]) },
-          { l: '2 bolts \u2014 both ends', tip: 'Two 3/4\u2033 bolt holes 3\u2033 apart on the gauge line at each end.', go: addR([Object.assign(a1('A', 2), { both: true })]) },
-          { l: '2 bolts \u2014 end A only', tip: 'Two 3/4\u2033 bolt holes 3\u2033 apart on the gauge line, starting 1 1/2\u2033 from end A \u2014 clips.', go: addR([a1('A', 2)]) },
-          { l: 'Holes every 12\u2033', tip: 'Holes on the gauge line every 12\u2033, centered on the length \u2014 ledger and shelf angles.', go: addR([Object.assign({ face: 'vleg', bolt: '3/4', type: 'std', gT: ga }, spreadR(12, 6))]) }];
-      })(),
+      recipes: recipesList,
+      starters,
       hasIssues: c.warns.length > 0,
       issues: c.warns.map(w => ({ t: w.t, dot: { color: w.lvl === 'err' ? '#B3261E' : '#B45309', font: '700 12px/1 monospace' } })),
       invalid: c.invalid || errN > 0,
@@ -3292,7 +3382,7 @@ class Component extends DCLogic {
       rvTitle: rv ? (rv.kind === 'job' ? 'Check the job before saving' : 'Check this part before saving') : '',
       rv: rv && rv.one ? rv.one : { mark: '', qty: '', stock: '', len: '', sp: '', endA: '', endB: '', holes: '', wt: '', file: '' },
       rvHasSp: !!(rv && rv.one && rv.one.sp),
-      rvRows: rv ? rv.rows.map(r => ({ mark: r.mark, qty: '\u00D7' + r.qty, txt: r.bad ? 'LEFT OUT \u2014 ' + (r.why || 'has an error') : r.stock + ' \u00B7 ' + r.len + ((r.endA !== 'SQUARE' || r.endB !== 'SQUARE') ? ' \u00B7 A: ' + r.endA + ' \u00B7 B: ' + r.endB : '') + (r.holes !== 'None' ? ' \u00B7 holes: ' + r.holes : ''), s: { color: r.bad ? '#B3261E' : '#14181D', font: (r.bad ? '700' : '400') + ' 12.5px/1.45 Barlow, sans-serif' } })) : [],
+      rvRows: rv ? rv.rows.map(r => ({ mark: r.mark, qty: '\u00D7' + r.qty, txt: r.bad ? 'LEFT OUT \u2014 ' + (r.why || 'has an error') : r.stock + ' \u00B7 ' + r.len + ((r.endA !== 'Square cut' || r.endB !== 'Square cut') ? ' \u00B7 A: ' + r.endA + ' \u00B7 B: ' + r.endB : '') + (r.holes !== 'None' ? ' \u00B7 holes: ' + r.holes : ''), s: { color: r.bad ? '#B3261E' : '#14181D', font: (r.bad ? '700' : '400') + ' 12.5px/1.45 Barlow, sans-serif' } })) : [],
       rvDest: rv ? rv.dest : '', rvNoJob: !!rv && rv.noJob,
       rvBevel: !!rv && rv.bevel,
       rvHasCautions: !!rv && rv.cautions.length > 0, rvCautions: rv ? rv.cautions.map(t => ({ t })) : [],
@@ -3321,7 +3411,7 @@ class Component extends DCLogic {
       bandLegend: st.hovL ? st.hovL : (c.kind === 'round' ? 'Middle = top of the pipe \u00B7 top and bottom edge = the seam \u00B7 lines every 12\u2033' : c.kind === 'box' ? 'Middle = top face \u00B7 top and bottom edge = the seam \u00B7 lines every 12\u2033' : 'Lines every 12\u2033'),
       bandLegendS: { font: st.hovL ? '700 12px/1 JetBrains Mono, monospace' : '500 12px/1 JetBrains Mono, monospace', color: st.hovL ? '#1F3A5F' : '#6B7480', whiteSpace: 'nowrap' },
       vb: p.vb, gridP: p.gridP, refP: p.refP, wpP: p.wpP, outAP: p.outAP, outBP: p.outBP, outCP: p.outCP, holesP: p.holesP,
-      bandLbls: p.lbls, sw: p.sw, swThin: p.swThin, dash: p.dash,
+      bandLbls: (p.lbls || []).map(drawLbl), sw: p.sw, swThin: p.swThin, dash: p.dash,
       endASpec: c.invalid || !c.A ? '\u2014' : this.endSpecText(c.A, c.sec),
       endBSpec: c.invalid || !c.B ? '\u2014' : this.endSpecText(c.B, c.sec),
       holeChip: nOK ? Object.entries(byDia).map(([k, v]) => v + '\u00D7 ' + k).join('  ') : 'NO HOLES',
@@ -3403,7 +3493,7 @@ class Component extends DCLogic {
           holesP, refP,
           wpP: 'M0 ' + (-fs * .8).toFixed(1) + 'V' + (hcv.W + fs * .8).toFixed(1),
           sw: span / 400,
-          lbls: hcv.curves.map(cv => ({ x: (cv.x0 + cv.x1) / 2 - fs * .6, y: -fs * .4, t: 'B' + cv.b.id, s: { font: '500 ' + fs.toFixed(2) + 'px JetBrains Mono, monospace', fill: '#1F3A5F' } }))
+          lbls: hcv.curves.map(cv => drawLbl({ x: (cv.x0 + cv.x1) / 2 - fs * .6, y: -fs * .4, t: 'B' + cv.b.id, s: { font: '500 ' + fs.toFixed(2) + 'px JetBrains Mono, monospace', fill: '#1F3A5F' } }))
         };
       })(),
       hbDxf: () => {

@@ -112,6 +112,38 @@ const grp = (c, p) => ({ wantHoles: true, groups: [{ ...c.state.groups[0], ...p 
   } finally { Component.LASER = { maxOD: Infinity, maxLen: Infinity }; }
 }
 
+// ---------- 1c. common parts: one tap, a valid part, read back in plain words ----------
+{
+  for (const fam of ['pipe', 'tube', 'hss', 'beam', 'chan', 'angl']) {
+    const c = await freshApp(); c.pickFam(fam)(); c.setState({ lenT: '60' });
+    const names = c.renderVals().starters.map((x) => x.l);
+    ok(names.length >= 3 && names[0] === 'Straight cut', fam + ': common parts are offered, straight cut first', names.join(' | '));
+    for (const nm of names) {
+      const d = await freshApp(); d.pickFam(fam)(); d.setState({ lenT: '60' });
+      d.renderVals().starters.find((x) => x.l === nm).go();
+      ok(!d.blocked(d.calc()) && !d.markIssue(), fam + ' \u201C' + nm + '\u201D gives a part that can be saved as it stands', errs(d).join(' | '));
+    }
+  }
+  const pick = async (fam, nm, patch) => { const d = await freshApp(); d.pickFam(fam)(); d.setState(Object.assign({ lenT: '60' }, patch)); d.renderVals().starters.find((x) => x.l === nm).go(); return d; };
+  const br = await pick('pipe', 'Branch / stub-in'), rb = br.calc();
+  ok(rb.A.mode === 'saddle' && rb.B.mode === 'sq' && br.endWords(rb.A, rb.sec) === 'Fish-mouth to sit on 6\u2033 SCH 40 pipe, square to it (a tee)' && br.endWords(rb.B, rb.sec) === 'Square cut', 'pipe branch: saddle on End A, read back in plain words', br.endWords(rb.A, rb.sec));
+  const fr = await pick('hss', 'Frame side \u2014 45\u00B0 both ends'), rf = fr.calc();
+  ok(Math.abs(rf.OAL - 60) < 1e-9 && Math.abs(rf.SP - 52) < 1e-9 && fr.endWords(rf.A, rf.sec) === 'Miter 45\u00B0 seen from the side, top is the long side', '4x4 frame side: 60 long point to long point, 52 short side, top long', rf.OAL + ' / ' + rf.SP + ' / ' + fr.endWords(rf.A, rf.sec));
+  const cb = await pick('beam', 'Coped beam \u2014 web bolts'), rc = cb.calc();
+  ok(!!rc.A.ct && !!rc.B.ct && rc.holes.filter((h) => h.ok).length === 6 && /top flange coped 4\u2033 long \u00D7 1 1\/2\u2033 deep/.test(cb.endWords(rc.A, rc.sec)), 'coped beam: both ends coped, six web bolts', cb.endWords(rc.A, rc.sec));
+  const hp = await pick('tube', 'Handrail post'), rh = hp.calc();
+  ok(rh.B.mode === 'saddle' && rh.B.sd.custom && Math.abs(rh.B.sd.hod - 2) < 1e-9, 'handrail post: top fish-mouthed to a rail of the same 2 in tube');
+  // a common part replaces what was on the form (after asking), and keeps size, grade and length
+  const w = await freshApp({ lenT: '72', pnps: '4', psch: '80', mat: '304L' }); w.setState(end(w, 'A', { mode: 'miter', maT: '30' })); w.setState(grp(w, { type: 'cust', diaT: '1', x0T: '6' }));
+  w.renderVals().starters[0].go();
+  ok(w.state.ends.A.mode === 'sq' && !w.state.wantHoles && w.state.pnps === '4' && w.state.psch === '80' && w.state.mat === '304L' && w.state.lenT === '72', 'Straight cut clears the ends and holes and keeps size, grade and length');
+  // long side of a pipe miter in words
+  const m = await freshApp({ lenT: '48' }); m.setState(end(m, 'B', { mode: 'miter', maT: '45', mrT: '90' }));
+  ok(/long side on the right/.test(m.endWords(m.calc().B, m.calc().sec)), 'miter turned 90: long side on the right');
+  m.setState(end(m, 'B', { mode: 'miter', maT: '-45', mrT: '90' }));
+  ok(/long side on the left/.test(m.endWords(m.calc().B, m.calc().sec)), 'a minus miter angle flips the long side');
+}
+
 // ---------- 2. laser file names ----------
 {
   const c = await freshApp({ lenT: '48', mark: 'P-7', qty: 3 });
@@ -168,7 +200,7 @@ try {
   const root = fakeDir('Laser'); link(c, root);
   c.askSave('part');
   const rv = c.reviewInfo('part');
-  ok(c.state.review === 'part' && rv.one.file === 'P-1_6-SCH-40_A106B_48in - QTY 4.igs' && rv.dest === 'Laser › JOB_2611' && /MITER 30/.test(rv.one.endB) && rv.one.qty === 4, 'review card reads the part back: file, folder, ends, quantity', JSON.stringify([rv.one.file, rv.dest, rv.one.endB]));
+  ok(c.state.review === 'part' && rv.one.file === 'P-1_6-SCH-40_A106B_48in - QTY 4.igs' && rv.dest === 'Laser › JOB_2611' && rv.one.endB === 'Miter 30\u00B0 off square, long side on top' && rv.one.qty === 4, 'review card reads the part back: file, folder, ends, quantity', JSON.stringify([rv.one.file, rv.dest, rv.one.endB]));
   await c.confirmSave();
   const jobDir = root.dirs.get('JOB_2611');
   const saved = jobDir && jobDir.files.get('P-1_6-SCH-40_A106B_48in - QTY 4.igs');

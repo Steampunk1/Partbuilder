@@ -311,6 +311,9 @@
       return () => txt;
     }
     const parts = txt.split(/\{\{([\s\S]+?)\}\}/g);
+    // Inside an SVG <text> an HTML <span> is never drawn: the labels on the flat drawings were silently blank.
+    // There the interpolated value goes in a <tspan>.
+    const inSvgText = !!(node.parentNode && /^(text|tspan|textPath)$/i.test(node.parentNode.nodeName || ''));
     return (vals, ctx, key) => h(
       React.Fragment,
       { key },
@@ -325,7 +328,7 @@
           return h(React.Fragment, { key: i }, v);
         }
         if (v === null || typeof v === 'boolean') return null;
-        return h('span', { key: i, className: 'sc-interp' }, String(v));
+        return h(inSvgText ? 'tspan' : 'span', { key: i, className: 'sc-interp' }, String(v));
       })
     );
   }
