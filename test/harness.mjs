@@ -834,8 +834,14 @@ function meshChecks(m) {
   // quantity typed in the job list
   j.renderVals().jobParts[0].sQty({ target: { value: '7' } });
   ok(j.state.parts[0].qty === 7 && j.cfgFromPart(j.state.parts[0]).qty === 7, 'job-list quantity is the one that counts');
+  // The box keeps what is typed (clearing it to retype no longer snaps back to 1,
+  // which turned "4" into "14"); until it reads as a whole number the part cannot be saved.
   j.renderVals().jobParts[0].sQty({ target: { value: '0' } });
-  ok(j.state.parts[0].qty === 1, 'quantity never drops below 1');
+  ok(j.state.parts[0].qty === 0 && j.renderVals().jobParts[0].qty === '0' && j.reviewInfo('job').rows[0].bad, 'a quantity of 0 is shown as typed and that part cannot be saved');
+  j.renderVals().jobParts[0].sQty({ target: { value: '' } });
+  ok(j.state.parts[0].qty === 0 && j.renderVals().jobParts[0].qty === '' && /quantity is blank/.test(j.reviewInfo('job').rows[0].why), 'a cleared quantity box stays clear and that part cannot be saved');
+  j.renderVals().jobParts[0].sQty({ target: { value: '7' } });
+  ok(j.state.parts[0].qty === 7 && !j.reviewInfo('job').rows[0].bad, 'typing the quantity again restores the part');
   j.renderVals().jobParts[0].load();
   j.renderVals().jobParts[0].del();
   ok(j.state.editId === null && j.state.parts.length === 2, 'deleting the part being edited ends the edit');
@@ -976,13 +982,28 @@ function meshChecks(m) {
     const f = await freshApp(); f.setState({ parts: sqOld.state.parts });
     f.renderVals().jobParts[0].load();
     ok(f.state.lenMode === 'oal', 'older square-ended part loads as an overall part');
-    ok(f.state.heat === '' && f.state.ends.A.wantBevel === true, 'heat number is dropped on load; a weld bevel stays with the part');
+    ok(f.state.heat === 'H123' && f.state.ends.A.wantBevel === true, 'opening a job part to edit keeps its heat number and its weld bevel');
+    { const rc = await freshApp(); rc.setState({ recallT: sqOld.state.parts[0].payload }); rc.renderVals().doRecall(); ok(rc.state.heat === '' && rc.state.lenMode === 'oal', 'a part reloaded from its code is a new piece: no heat number carried over'); }
     const sadOld = await fresh({ lenT: '40', lenMode: 'wp' }); sadOld.renderVals().endSteps[0].mSaddle(); sadOld.addToJob();
     const lpOld = sadOld.calc().LP;
     const f2 = await freshApp(); f2.setState({ parts: sadOld.state.parts });
     f2.renderVals().jobParts[0].load();
-    ok(f2.state.lenMode === 'wp' && /^Older part/.test(f2.renderVals().lenNote), 'older saddled part keeps its own measuring and says so', f2.renderVals().lenNote);
-    near(f2.calc().LP, lpOld, 1e-9, 'and still cuts exactly as it was saved');
+    // An older center-to-center part is re-stated end to end as it loads: no hidden
+    // length mode is left on the form to change what the next part means.
+    ok(f2.state.lenMode === 'oal' && /end to end/.test(f2.state.saveMsg) && Math.abs(f2.parseIn(f2.state.lenT) - lpOld) < 1e-4, 'older saddled part is re-stated end to end as it loads, and the form says so', f2.state.lenT + ' / ' + f2.state.saveMsg);
+    near(f2.calc().LP, lpOld, 1e-4, 'and still cuts as it was saved (within a ten-thousandth)');
+    near(f2.calc().L, sadOld.calc().L, 1e-4, 'its work-point length is unchanged');
+    {
+      // holes keep their place on the steel: pattern from A, pattern from B, mirrored both ends, exact list
+      const mk = async (gp) => { const o = await fresh({ lenT: '60', lenMode: 'wp' }); o.setState((st) => ({ ends: { A: { ...st.ends.A, mode: 'miter', maT: '30', mrT: '0' }, B: { ...st.ends.B, mode: 'saddle', sdAT: '60' } }, wantHoles: true, groups: [{ ...st.groups[0], type: 'cust', diaT: '1', azT: '90', ...gp }] })); return o; };
+      for (const [nm, gp] of [['from End A', { refEnd: 'A', x0T: '12', nT: '3', pT: '6' }], ['from End B', { refEnd: 'B', x0T: '9 1/2', nT: '2', pT: '4' }], ['both ends', { refEnd: 'A', both: true, x0T: '14', nT: '2', pT: '5' }], ['exact list', { refEnd: 'B', xsT: '10, 20 1/4, 31' }]]) {
+        const o = await mk(gp); const want = o.calc(); o.addToJob();
+        const n = await freshApp(); n.setState({ parts: o.state.parts }); n.renderVals().jobParts[0].load();
+        const got = n.calc();
+        const xsW = want.holes.filter((h) => h.ok).map((h) => h.x).sort((a, b) => a - b), xsG = got.holes.filter((h) => h.ok).map((h) => h.x).sort((a, b) => a - b);
+        ok(n.state.lenMode === 'oal' && !n.blocked(got) && xsW.length > 0 && xsW.length === xsG.length && xsW.every((x, i) => Math.abs(x - xsG[i]) < 1e-4) && Math.abs(got.LP - want.LP) < 1e-4 && Math.abs(got.aMin - want.aMin) < 1e-4, 'older mitered + saddled part re-stated end to end, holes ' + nm + ': same holes in the same places', JSON.stringify([xsW, xsG, want.LP, got.LP]));
+      }
+    }
     f2.pickFam('hss')();
     ok(f2.state.lenMode === 'oal', 'picking a new shape goes back to overall');
   }

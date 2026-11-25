@@ -65,7 +65,7 @@ class Component extends DCLogic {
       const raw = localStorage.getItem('spf_pb_job_v1');
       if (raw) {
         const j = JSON.parse(raw);
-        if (j && Array.isArray(j.parts)) Object.assign(this.state, { parts: j.parts, job: j.job || '', gripT: j.gripT || '6', stickSel: j.stickSel || {}, rateCT: j.rateCT || '0.85', rateST: j.rateST || '3.50', rateAT: j.rateAT || '2.60', hdrB: (j.hdrB && Array.isArray(j.hdrB.list)) ? j.hdrB : this.state.hdrB, dxfRef: !!j.dxfRef });
+        if (j && Array.isArray(j.parts)) Object.assign(this.state, { parts: j.parts, job: j.job || '', gripT: j.gripT || '6', stickSel: j.stickSel || {}, rateCT: j.rateCT || '0.85', rateST: j.rateST || '3.50', rateAT: j.rateAT || '2.60', hdrB: (j.hdrB && Array.isArray(j.hdrB.list)) ? j.hdrB : this.state.hdrB, dxfRef: false });
       }
     } catch (e) {}
     this._fsInit();
@@ -75,32 +75,47 @@ class Component extends DCLogic {
   }
 
   // ---------- parsing / formatting ----------
+  /** One plain number or shop fraction, in inches. Fractions must be real tape
+   *  fractions (halves down to 64ths, top smaller than the bottom): "63/8" is a
+   *  missed space, not 7 7/8, and is refused. Mixed numbers need a space or a
+   *  dash: "1 1/8" or "1-1/8". */
   frIn(s) {
-    s = String(s).trim(); if (!s) return null;
-    // Pure fraction first — "11/16" is 11/16, never "1 + 1/16". Mixed numbers
-    // need an explicit space or dash: "1 1/8" or "1-1/8".
+    s = String(s).trim().replace(/\s+/g, ' '); if (!s) return null;
+    const frac = (n, d) => { n = +n; d = +d; return (d === 2 || d === 4 || d === 8 || d === 16 || d === 32 || d === 64) && n > 0 && n < d ? n / d : null; };
     let m = s.match(/^(\d+)\/(\d+)$/);
-    if (m) { const den = parseFloat(m[2]); return den ? parseFloat(m[1]) / den : null; }
-    m = s.match(/^(\d+(?:\.\d+)?)(?:[ -](\d+)\/(\d+))?$/);
-    if (!m) { m = s.match(/^\.(\d+)$/); return m ? parseFloat('0.' + m[1]) : null; }
-    let v = parseFloat(m[1]);
-    if (m[2]) { const den = parseFloat(m[3]); if (!den) return null; v += parseFloat(m[2]) / den; }
-    return v;
+    if (m) return frac(m[1], m[2]);
+    m = s.match(/^(\d+)[ -](\d+)\/(\d+)$/);
+    if (m) { const f = frac(m[2], m[3]); return f == null ? null : parseFloat(m[1]) + f; }
+    m = s.match(/^(\d+\.?\d*|\.\d+)$/);
+    return m ? parseFloat(m[1]) : null;
   }
+  /** A length the way it is read off a tape: 12'-6 3/8, 10' 6", 126, 10.5',
+   *  10ft 6in, 6 1/2". Anything that could be read two ways is refused (null)
+   *  rather than guessed: inches of 12 or more after feet, an inch mark in the
+   *  middle, a feet part that is not a plain number. */
   parseIn(s) {
     if (s == null) return null;
-    s = String(s).replace(/[\u2033\u2032]/g, m => m === '\u2032' ? "'" : '').replace(/"/g, '').trim();
+    s = String(s)
+      .replace(/[\u2018\u2019\u2032`\u00B4]/g, "'").replace(/[\u201C\u201D\u2033]/g, '"')
+      .replace(/[\u2013\u2014\u2212]/g, '-').replace(/\u00A0/g, ' ')
+      .replace(/\u00BD/g, ' 1/2').replace(/\u00BC/g, ' 1/4').replace(/\u00BE/g, ' 3/4')
+      .replace(/\u215B/g, ' 1/8').replace(/\u215C/g, ' 3/8').replace(/\u215D/g, ' 5/8').replace(/\u215E/g, ' 7/8')
+      .replace(/\s*(feet|foot|ft)\.?\s*/gi, "' ").replace(/\s*(inches|inch|in)\.?\s*$/i, '"')
+      .trim().replace(/\s+/g, ' ');
     if (!s) return null;
-    const neg = /^-/.test(s) ? (s = s.replace(/^-/, '').trim(), true) : false;
+    let neg = false;
+    if (s[0] === '-') { neg = true; s = s.slice(1).trim(); } else if (s[0] === '+') s = s.slice(1).trim();
+    if (s.endsWith('"')) s = s.slice(0, -1).trim();
+    if (!s || s.includes('"')) return null;                 // an inch mark may only close the entry
     let v;
-    if (s.includes("'")) {
-      const i = s.indexOf("'");
-      const f = parseFloat(s.slice(0, i));
-      if (isNaN(f)) return null;
-      let rest = s.slice(i + 1).replace(/^[\s-]+/, '').trim();
+    const i = s.indexOf("'");
+    if (i >= 0) {
+      if (s.indexOf("'", i + 1) >= 0) return null;
+      const ft = s.slice(0, i).trim(), rest = s.slice(i + 1).replace(/^[\s-]+/, '').trim();
+      if (!/^(\d+\.?\d*|\.\d+)$/.test(ft)) return null;
       const inches = rest ? this.frIn(rest) : 0;
-      if (inches == null) return null;
-      v = f * 12 + inches;
+      if (inches == null || inches >= 12) return null;
+      v = parseFloat(ft) * 12 + inches;
     } else v = this.frIn(s);
     if (v == null) return null;
     return neg ? -v : v;
@@ -236,14 +251,16 @@ class Component extends DCLogic {
     const st = this.state, D = this.D;
     if (!D) return { kind: 'round', label: 'LOADING\u2026', od: 6.625, ro: 3.3125, ri: 3.0325, t: .28, wtFt: 18.97, loading: true };
     if (st.family === 'pipe') {
-      const od = D.PIPE_OD[st.pnps], t = D.PIPE_WALL[st.psch][st.pnps];
+      const od = D.PIPE_OD[st.pnps], t = (D.PIPE_WALL[st.psch] || {})[st.pnps];
+      if (!(od > 0) || !(t > 0)) return { kind: 'round', label: st.pnps + '\u2033 ' + this.schedLabel(st.psch), od: 6.625, ro: 3.3125, ri: 3.0325, t: .28, wtFt: 18.97, unknown: st.pnps + '\u2033 ' + this.schedLabel(st.psch) + ' is not in the pipe table \u2014 pick the size and schedule again.' };
       const A = Math.PI * (od * od - (od - 2 * t) * (od - 2 * t)) / 4;
       return { kind: 'round', label: st.pnps + '\u2033 ' + this.schedLabel(st.psch), od, ro: od / 2, ri: od / 2 - t, t, wtFt: A * 3.4032 };
     }
     if (st.family === 'tube') {
       const od = this.parseIn(st.todT) || 2, t0 = this.parseIn(st.twallT) || .12, t = Math.min(t0, od / 2 - .01);
       const A = Math.PI * (od * od - (od - 2 * t) * (od - 2 * t)) / 4;
-      return { kind: 'round', label: od + '\u2033 OD \u00D7 ' + this.fr16(t) + ' WALL', od, ro: od / 2, ri: od / 2 - t, t, wtFt: A * 3.4032 };
+      // wall to the thousandth: .065 and .083 are different tube, never both "1/16"
+      return { kind: 'round', label: (+od.toFixed(3)) + '\u2033 OD \u00D7 ' + t.toFixed(3).replace(/^0/, '') + ' WALL', od, ro: od / 2, ri: od / 2 - t, t, wtFt: A * 3.4032 };
     }
     if (st.family === 'hss') {
       const p = st.hsize.split('x'), H = this.frIn(p[0]) || 4, B = this.frIn(p[1]) || H;
@@ -263,12 +280,12 @@ class Component extends DCLogic {
     const ser = isBeam ? st.bser : st.cser;
     if (isBeam && ser === 'CUST') {
       const d = this.parseIn(st.cdT) || 12, bf = this.parseIn(st.cbT) || 6.5, tf = this.parseIn(st.ctfT) || .375, tw = this.parseIn(st.ctwT) || .25, wtFt = this.frIn(st.cwT) || 26;
-      return { kind: 'plate', label: 'CUSTOM ' + d + '\u2033', d, bf, tf, tw, wtFt, chan: false };
+      return { kind: 'plate', label: 'CUSTOM ' + [d, bf, tf, tw].map(v => +v.toFixed(3)).join('x'), d, bf, tf, tw, wtFt, chan: false };
     }
     const tbl = D[ser] || D.W;
     const key = isBeam ? st.bsize : st.csize;
     const rec = tbl[key] || Object.values(tbl)[0];
-    return { kind: 'plate', label: key, d: rec[0], bf: rec[1], tf: rec[2], tw: rec[3], wtFt: rec[4], chan: !isBeam };
+    return { kind: 'plate', label: key, d: rec[0], bf: rec[1], tf: rec[2], tw: rec[3], wtFt: rec[4], chan: !isBeam, unknown: tbl[key] ? '' : (key || 'That size') + ' is not in the ' + (isBeam ? 'beam' : 'channel') + ' table \u2014 pick the size again.' };
   }
   schedLabel(s) { return (s === 'STD' || s === 'XS') ? s : 'SCH ' + s; }
 
@@ -344,6 +361,9 @@ class Component extends DCLogic {
     const round = f === 'pipe' || f === 'tube', plate = f === 'beam' || f === 'chan';
 
     // --- the section
+    if (sec.unknown) out.push(sec.unknown);
+    if (this.D && this.D.MATERIALS && !this.D.MATERIALS.some(m => m.id === st.mat)) out.push('The grade is not in the list \u2014 pick it again.');
+    { const Lt = inch(st.lenT); if (Lt != null && Lt > 0 && Lt < .25) out.push('Cut length ' + txt(st.lenT) + ' is under 1/4\u2033 \u2014 check it.'); if (Lt != null && Lt > 576) out.push('Cut length ' + this.fmtFtIn(Lt) + ' is longer than a 48 ft stick.'); }
     if (f === 'tube') {
       const od = pos(st.todT), w = pos(st.twallT);
       if (od == null) cant('Tube OD', st.todT);
@@ -367,6 +387,9 @@ class Component extends DCLogic {
       if (tw == null) cant('Custom beam web thickness', st.ctwT);
       if (!(this.frIn(st.cwT) > 0)) cant('Custom beam lb/ft', st.cwT);
       if (tw != null && bf != null && tw >= bf) out.push('Custom beam: the web is thicker than the flange is wide.');
+      if (d != null && d > 60) out.push('Custom beam depth ' + txt(st.cdT) + '\u2033 \u2014 over 60\u2033, check it.');
+      if (bf != null && bf > 30) out.push('Custom beam flange width ' + txt(st.cbT) + '\u2033 \u2014 over 30\u2033, check it.');
+      for (const [v, lbl, raw] of [[tf, 'flange', st.ctfT], [tw, 'web', st.ctwT]]) if (v != null && (v < 1 / 16 - 1e-9 || v > 6)) out.push('Custom beam ' + lbl + ' thickness ' + txt(raw) + '\u2033 \u2014 it must be 1/16\u2033 to 6\u2033.');
     }
 
     // --- the ends
@@ -404,6 +427,7 @@ class Component extends DCLogic {
           if (dc == null) cant(nm + ' ' + lbl + ' depth', e[keys[1]]);
           if (r == null) cant(nm + ' ' + lbl + ' radius', e[keys[2]]);
           else if (cl != null && dc != null && r > Math.min(cl, Math.max(dc, sec.tf || 0)) + 1e-9) out.push(nm + ': ' + lbl + ' radius ' + this.fmtIn(r) + ' is bigger than the cope itself.');
+          if (cl != null && c && c.L > 0 && cl >= c.L) out.push(nm + ': ' + lbl + ' ' + this.fmtIn(cl) + ' is as long as the piece.');
         }
         if (e.rat && e.rat !== 'NONE') {
           const rr = pos(e.rrT);
@@ -433,8 +457,15 @@ class Component extends DCLogic {
         const n = whole(g.nT, 1, 60);
         if (n == null) cant(nm + ' “how many”', g.nT);
         else if (n === Infinity) out.push(nm + ': more than 60 along the length — that is the most one set holds. Split it into two sets.');
-        else if (n > 1) { const p = inch(g.pT); if (p == null) cant(nm + ' spacing', g.pT); else if (p <= 0) out.push(nm + ': spacing must be more than 0.'); }
+        else if (n > 1) {
+          const p = inch(g.pT), hs = this.holeSize(g), along = hs.slotL && g.ax === 'x' ? hs.slotL : hs.dia;
+          if (p == null) cant(nm + ' spacing', g.pT);
+          else if (p <= 0) out.push(nm + ': spacing must be more than 0.');
+          else if (p < along - 1e-9) out.push(nm + ': ' + this.fmtIn(p) + ' apart is less than the ' + this.fmtIn(along) + ' hole \u2014 the holes run together.');
+        }
       }
+      if (!round && f !== 'hss' && g.type !== 'cust' && this.D && !this.D.BOLT[g.bolt]) out.push(nm + ': bolt size is not in the list \u2014 pick it again.');
+      if (round && g.type !== 'cust' && this.D && !(this.D.PIPE_OD[g.bnps] > 0 && ((this.D.PIPE_WALL[g.bsch] || this.D.PIPE_WALL.STD)[g.bnps] > 0))) out.push(nm + ': branch size is not in the pipe table \u2014 pick it again.');
       if (c && c.L > 0 && this.holeXs(g, c.L, c.x0, c.x1, true).length > 60) out.push(nm + ': more than 60 along the length — that is the most one set holds. Split it into two sets.');
       const slotH = f === 'hss' && g.type === 'slot';
       if (round ? g.type === 'cust' : (f === 'hss' || g.type === 'cust')) {
@@ -444,22 +475,27 @@ class Component extends DCLogic {
       }
       if (round) {
         if (num(g.azT) == null) cant(nm + ' degrees around', g.azT);
+        else if (Math.abs(num(g.azT)) > 360) out.push(nm + ': degrees around ' + txt(g.azT) + ' \u2014 it must be 0 to 360.');
         const an = whole(g.aznT, 1, 24);
         if (an == null) cant(nm + ' “how many around”', g.aznT);
         else if (an === Infinity) out.push(nm + ': more than 24 around — that is the most one set holds.');
-        else if (an > 1) { const ap = num(g.azpT); if (ap == null) cant(nm + ' degrees apart', g.azpT); else if (ap === 0) out.push(nm + ': degrees apart must not be 0.'); }
+        else if (an > 1) { const ap = num(g.azpT); if (ap == null) cant(nm + ' degrees apart', g.azpT); else if (ap === 0) out.push(nm + ': degrees apart must not be 0.'); else if (an * Math.abs(ap) > 360 + 1e-9) out.push(nm + ': ' + an + ' holes ' + Math.abs(ap) + '\u00B0 apart go round more than once \u2014 some would be cut twice.'); }
       } else if (f === 'hss') {
         if (inch(g.offT) == null) cant(nm + ' offset from the face center', g.offT);
       } else if (f === 'angl') {
-        if (inch(g.gT) == null) cant(nm + ' gauge from the heel', g.gT);
+        const gh = inch(g.gT);
+        if (gh == null) cant(nm + ' gauge from the heel', g.gT);
+        else if (gh <= 0) out.push(nm + ': gauge from the heel must be more than 0.');
       } else if (g.face === 'web') {
         const ny = whole(g.nyT, 1, 30);
         if (ny == null) cant(nm + ' bolts down the web', g.nyT);
         else if (ny === Infinity) out.push(nm + ': more than 30 down the web — that is the most one set holds.');
-        else if (ny > 1) { const py = inch(g.pyT); if (py == null) cant(nm + ' spacing down the web', g.pyT); else if (py <= 0) out.push(nm + ': spacing down the web must be more than 0.'); }
+        else if (ny > 1) { const py = inch(g.pyT), hs = this.holeSize(g), down = hs.slotL && g.ax === 'y' ? hs.slotL : hs.dia; if (py == null) cant(nm + ' spacing down the web', g.pyT); else if (py <= 0) out.push(nm + ': spacing down the web must be more than 0.'); else if (py < down - 1e-9) out.push(nm + ': ' + this.fmtIn(py) + ' apart down the web is less than the ' + this.fmtIn(down) + ' hole \u2014 the holes run together.'); }
         if (!g.autoY && inch(g.y0T) == null) cant(nm + ' first row distance', g.y0T);
       } else if (!(g.autoG && this.stdGaugeFor(sec, f, 'tf') != null)) {
-        if (inch(g.gT) == null) cant(nm + ' gauge', g.gT);
+        const gv = inch(g.gT);
+        if (gv == null) cant(nm + ' gauge', g.gT);
+        else if (g.amode === 'gauge' && gv <= 0) out.push(nm + ': gauge must be more than 0.');
       }
     });
     return out;
@@ -898,6 +934,7 @@ class Component extends DCLogic {
         for (const t of tests) if (!this.pip(t, O)) { h.ok = false; break; }
       }
       if (!h.ok && !invalid) warns.push({ lvl: 'err', t: '\u00D8' + this.fr16(h.dia) + ' hole ' + this.fmtIn(h.x - hx0) + ' from End A (' + h.face.toUpperCase() + ') falls off the material / in a cope \u2014 skipped.' });
+      else if (h.ok && h.face !== 'web' && (sec.chan ? h.c : Math.abs(h.c)) - ry < tw / 2 - 1e-9) { h.ok = false; warns.push({ lvl: 'err', t: 'Flange hole ' + this.fmtIn(h.x - hx0) + ' from End A sits over the web \u2014 widen the gauge or offset.' }); }
       else if (h.ok && h.face === 'web' && Math.abs(h.c) > hw - 0.35 - ry) warns.push({ lvl: 'warn', t: 'Web hole ' + this.fmtIn(h.x - hx0) + ' from End A is tight to the flange fillet (k-zone) \u2014 verify.' });
       const bolt = this.frIn(h.bolt) || h.dia;
       if (h.ok) {
@@ -1201,13 +1238,17 @@ class Component extends DCLogic {
   }
 
 
+  /** The part mark as it goes into a file name: letters, digits, dash and
+   *  underscore only (no dot: Windows reads "AUX.2_..." as the device AUX), no
+   *  leading or trailing dash, 40 characters at most. */
+  markKey(v) { return String(v == null ? '' : v).replace(/[^A-Za-z0-9_]+/g, '-').replace(/_vti_/gi, '-vti-').replace(/^[-_]+|-+$/g, '').slice(0, 40); }   // "_vti_" is refused by OneDrive / SharePoint
   fileBase() {
     const st = this.state, c = this.calc();
-    return ((st.mark || 'part') + '_' + c.sec.label + '_' + (c.L ? Math.round((c.OAL || c.L) * 16) / 16 : 0) + 'in').replace(/[^\w.-]+/g, '-');
+    return ((this.markKey(st.mark) || 'part') + '_' + c.sec.label + '_' + (c.L ? Math.round((c.OAL || c.L) * 16) / 16 : 0) + 'in').replace(/[^\w.-]+/g, '-').replace(/[-.]+$/, '');
   }
 
   componentDidMount() { this._syncSel(); this._start(); }
-  componentDidUpdate() { this._syncSel(); this._queue(); this._persist(); }
+  componentDidUpdate() { this._normLen(); this._syncSel(); this._queue(); this._persist(); }
   _syncSel() { document.querySelectorAll('select[data-sv]').forEach(el => { const v = el.getAttribute('data-sv'); if (v != null && el.value !== v) el.value = v; }); }
   async _start() {
     if (this._starting) return;
@@ -1673,7 +1714,7 @@ class Component extends DCLogic {
     try { const p = await h.requestPermission({ mode: 'readwrite' }); this.setState({ fsPerm: p, archMsg: p === 'granted' ? '"' + h.name + '" reconnected ✓' : 'Folder access declined' }); if (p === 'granted') this._fsBackup(); } catch (e) {}
   }
   _fsUnlink() { this._fsDir = null; this._fsSaveHandle(null); this.setState({ fsName: '', fsPerm: '', archMsg: 'Folder unlinked' }); }
-  _jobDirName() { return 'JOB_' + (this.state.job || 'NO-JOB').replace(/[^\w.-]+/g, '_'); }
+  _jobDirName() { return 'JOB_' + (String(this.state.job || '').replace(/[^\w.-]+/g, '_').replace(/^[_.-]+|[_.-]+$/g, '') || 'NO-JOB'); }
   /** Writes one file into the linked folder. Returns where it went (a label
    *  such as "Laser › JOB_2611"), or false if it could not be written or the
    *  file read back from disk is not the size that was sent. */
@@ -1721,10 +1762,11 @@ class Component extends DCLogic {
   /** Hand a finished laser file over: into the linked folder when there is one,
    *  otherwise the browser's download. -> { to: 'folder', where } | { to: 'download' } */
   async _deliver(name, data, mime) {
+    const linked = !!this._fsDir && this.state.fsPerm === 'granted';
     const where = await this._fsWrite(name, data);
     if (where) return { to: 'folder', where };
     this._download(data, name, mime, true);
-    return { to: 'download' };
+    return { to: 'download', folderFailed: linked };
   }
   _fsBackup() {
     clearTimeout(this._fsbt);
@@ -1772,8 +1814,18 @@ class Component extends DCLogic {
       if (!j || typeof j !== 'object') return null;
       // No prefix (pasted without it): a full v1 code carries every config key.
       if (v2 === null) v2 = !Component.CFG_KEYS.every(k => k === 'lenMode' || Object.prototype.hasOwnProperty.call(j, k));
-      if (!v2) return j.family ? { cfg: j, hadLenMode: Object.prototype.hasOwnProperty.call(j, 'lenMode') } : null;
       const base = Object.assign(Component.freshPart(), { lenMode: 'wp' });
+      if (!v2) {
+        // A full code is read against the factory defaults, never the form: the
+        // same code must give the same part whatever is on screen.
+        if (!j.family) return null;
+        const full = {};
+        for (const k of Component.CFG_KEYS) if (k !== 'ends' && k !== 'groups') full[k] = Object.prototype.hasOwnProperty.call(j, k) ? j[k] : JSON.parse(JSON.stringify(base[k]));
+        const je = j.ends || {};
+        full.ends = { A: Object.assign(Component.defEnd(), je.A), B: Object.assign(Component.defEnd(), je.B) };
+        full.groups = Array.isArray(j.groups) && j.groups.length ? j.groups.map(g => Object.assign(Component.defGroup(g.id, full.family), g)) : [Component.defGroup(1, full.family)];
+        return { cfg: full, hadLenMode: Object.prototype.hasOwnProperty.call(j, 'lenMode') };
+      }
       const cfg = {};
       for (const k of Component.CFG_KEYS) if (k !== 'ends' && k !== 'groups') cfg[k] = Object.prototype.hasOwnProperty.call(j, k) ? j[k] : JSON.parse(JSON.stringify(base[k]));
       const ends = j.ends || {};
@@ -1807,9 +1859,12 @@ class Component extends DCLogic {
         this._c = null;
         try { const c = this.calc(); return c.invalid ? null : (c.OAL || c.L); } catch (e) { return null; } finally { this.state = saved; this._c = savedC; }
       };
-      const tol = 1 / 64, wp = lpFor('wp'), oal = lpFor('oal');
+      const wp = lpFor('wp'), oal = lpFor('oal');
       const dW = wp == null ? Infinity : Math.abs(wp - pt.oal), dO = oal == null ? Infinity : Math.abs(oal - pt.oal);
-      cfg.lenMode = (dO < dW && dO <= tol) ? 'oal' : 'wp';   // the closer match wins; a tie (square ends) is WP
+      // Neither reading gives the length this record was listed at: it cannot be
+      // rebuilt with confidence, so it is not rebuilt at all.
+      if (Math.min(dW, dO) > 1 / 16) return null;
+      cfg.lenMode = dO < dW ? 'oal' : 'wp';                  // the closer match wins; a tie (square ends) is WP
     }
     if (cfg.lenMode !== 'oal') cfg.lenMode = 'wp';
     if (pt.qty > 0) cfg.qty = pt.qty;
@@ -1867,24 +1922,47 @@ class Component extends DCLogic {
   laserBase() {
     const st = this.state, c = this.calc();
     const clean = (v) => String(v).replace(/[^\w.-]+/g, '-').replace(/^[-.]+|[-.]+$/g, '') || 'x';
+    // no dot in the mark: Windows reads "AUX.2_..." as the device AUX
+    const mark = this.markKey(st.mark) || 'part';
     const len = c.L ? +((c.OAL || c.L).toFixed(3)) : 0;
     const bev = ['A', 'B'].filter(k => c[k] && c[k].bv > 0).map(k => k + c[k].bv);
-    return [clean(st.mark || 'part'), clean(c.sec.label), clean(this.matRec().id), len + 'in'].join('_') + (bev.length ? '_BEVEL-' + clean(bev.join('-')) : '');
+    return [mark, clean(c.sec.label), clean(this.matRec().id), len + 'in'].join('_') + (bev.length ? '_BEVEL-' + clean(bev.join('-')) : '');
   }
   laserName(qty) { return this.laserBase() + ' - QTY ' + qty + '.igs'; }
   /** What is wrong with the part mark, or '' — a blank or repeated mark is how
    *  two different parts end up as one file name on the laser. */
   markIssue() {
     const st = this.state, m = String(st.mark || '').trim();
-    if (!m || m === '-') return 'Give this part a mark (like P-1) \u2014 it names the laser file.';
-    const twin = st.parts.find(p => p.id !== st.editId && String(p.mark).trim().toLowerCase() === m.toLowerCase());
+    // what the mark turns into in a file name: marks that differ only in spaces,
+    // slashes or letter case are the same file on a Windows or OneDrive folder
+    const key = (v) => this.markKey(v).toLowerCase();
+    if (!key(m)) return 'Give this part a mark (like P-1) \u2014 it names the laser file.';
+    if (m.length > 24) return 'The part mark is ' + m.length + ' characters \u2014 keep it to 24 or fewer.';
+    const twin = st.parts.find(p => p.id !== st.editId && key(p.mark) === key(m));
     if (twin) {
       const b = /^(.*?)(\d+)$/.exec(m); let free = '';
-      if (b) { let n = parseInt(b[2], 10); const has = (k) => st.parts.some(p => String(p.mark).trim().toLowerCase() === (b[1] + k).toLowerCase()); while (has(n)) n++; free = ' Next free: ' + b[1] + n + '.'; }
-      return 'Mark ' + m + ' is already in the job list \u2014 two parts cannot share a mark.' + free;
+      if (b) { let n = parseInt(b[2], 10); const has = (k) => st.parts.some(p => key(p.mark) === key(b[1] + k)); while (has(n)) n++; free = ' Next free: ' + b[1] + n + '.'; }
+      return 'Mark ' + m + ' is already in the job list' + (String(twin.mark).trim() !== m ? ' (as ' + twin.mark + ')' : '') + ' \u2014 two parts cannot share a mark.' + free;
     }
     return '';
   }
+  /** The quantity box holds what was typed; only a whole number, 1 or more, is a quantity. */
+  qtyIssue() { const q = this.state.qty; return typeof q === 'number' && q >= 1 && q === Math.round(q) && q <= 9999 ? '' : 'Qty: type a whole number, 1 or more.'; }
+  /** Things wrong with the form that are not geometry: mark, quantity. */
+  formIssues() { return [this.markIssue(), this.qtyIssue()].filter(Boolean); }
+  /** Center-to-center lengths survive only on an older part that still has an
+   *  angled or saddled end. The moment the part on the form is square both ends
+   *  the two readings are the same piece, so it becomes an end-to-end part, and
+   *  whatever is built next uses end-to-end lengths like every new part. */
+  _normLen() {
+    if (this.state.lenMode === 'oal') return false;
+    const r = this.calc();
+    if (r.invalid || r.aMin == null || Math.abs(r.aMin) > 1e-9 || Math.abs(r.bMax - r.L) > 1e-9) return false;
+    this.setState({ lenMode: 'oal' });
+    return true;
+  }
+  /** Said on the form and on the review card while an older center-to-center part is up. */
+  lenCaution(c) { return this.state.lenMode !== 'oal' && c && !c.invalid && Math.abs(c.LP - c.SP) > 1 / 64 ? 'Older part: the length and hole distances typed here are center to center, not end to end. The piece comes out ' + this.fmtFtIn(c.OAL || c.L) + ' overall \u2014 check that before cutting.' : ''; }
   /** One checked true solid of the part now on the form -> { name, text }.
    *  Throws (and writes nothing) if the kernel's own checks do not pass. */
   _solidFile(oc, m, kind) {
@@ -1922,6 +2000,7 @@ class Component extends DCLogic {
    *  take them out so nobody cuts a superseded part. */
   async _saved(names, r, marks) {
     const n = names.length, what = n === 1 ? names[0] : n + ' laser files';
+    if (r.to !== 'folder' && r.folderFailed) { this.setState({ saveOk: false, saveMsg: 'Could not write into the laser folder "' + this.state.fsName + '" (is the file open in TubesT, or OneDrive busy?). ' + (r.zip || what) + ' is in your Downloads folder instead \u2014 move it to the laser folder yourself.' }); return; }
     if (r.to !== 'folder') { this.setState({ saveOk: true, saveMsg: '\u2713 ' + (r.zip ? r.zip + ' (' + what + ' + cut list)' : what) + ' \u2014 in your Downloads folder. ' + (r.zip ? 'Unzip it into' : 'Move it to') + ' the laser folder.' }); return; }
     let msg = '\u2713 Saved ' + what + ' \u2192 ' + r.where;
     const stale = await this._fsStale(names, marks);
@@ -1956,7 +2035,7 @@ class Component extends DCLogic {
         holes: Object.entries(by).map(([k, v]) => v + ' \u00D7 ' + k).join(', ') || 'None',
         wt: Math.round(c.wt) + ' lb each',
         bevel: !!((c.A && c.A.bv) || (c.B && c.B.bv)),
-        cautions: (c.warns || []).filter(w => w.lvl !== 'err' && !/ONE wall/.test(w.t)).map(w => w.t),
+        cautions: [this.lenCaution(c)].filter(Boolean).concat((c.warns || []).filter(w => w.lvl !== 'err' && !/ONE wall/.test(w.t)).map(w => w.t)),
         base: this.blocked(c) ? '' : this.laserBase()
       };
     };
@@ -1964,7 +2043,7 @@ class Component extends DCLogic {
       const p = line();
       return { kind, dest, noJob: !st.job, one: Object.assign(p, { mark: st.mark, qty: st.qty, file: p.base + ' - QTY ' + st.qty + '.igs' }), rows: [], cautions: p.cautions, bevel: p.bevel, out: 0, n: 1 };
     }
-    const rows = st.parts.map(pt => { let p; try { p = this._withPart(pt, line); } catch (e) { p = { bad: true, why: 'its saved setup could not be read', stock: pt.desc, len: pt.lenT2, cautions: [] }; } return Object.assign(p, { mark: pt.mark, qty: pt.qty }); });
+    const rows = st.parts.map(pt => { let p; try { p = this._withPart(pt, line); } catch (e) { p = { bad: true, why: 'its saved setup could not be read', stock: pt.desc, len: pt.lenT2, cautions: [] }; } if (!(pt.qty >= 1)) Object.assign(p, { bad: true, why: 'its quantity is blank' }); return Object.assign(p, { mark: pt.mark, qty: pt.qty }); });
     return { kind, dest, noJob: !st.job, one: null, rows, cautions: [], bevel: rows.some(r => r.bevel), out: rows.filter(r => r.bad).length, n: rows.filter(r => !r.bad).length };
   }
   askSave(kind) {
@@ -1979,17 +2058,37 @@ class Component extends DCLogic {
     this.setState({ review: null });
     if (kind === 'job') await this.dlJobFiles(); else await this.dlSolid('igs');
   }
-  /** A saved setup on its way into the form. A part whose ends are square
-   *  measures the same either way, so it becomes an overall part. Only an older
-   *  part with an angled or saddled end stays center to center (the form says so). */
+  /** A saved setup on its way into the form. Every part on the form is measured
+   *  end to end. An older part saved center to center is re-stated end to end
+   *  as it loads - the same piece to the hundred-thousandth, with its length and
+   *  hole distances now counted from the real ends - so no hidden length mode
+   *  is left behind to change what the next part means. */
   forForm(cfg) {
     const saved = this.state, savedC = this._c;
-    let same = false;
+    const out = Object.assign({}, cfg, { heat: '' });
     this.state = Object.assign({}, saved, cfg);
     this._c = null;
-    try { const r = this.calc(); same = !r.invalid && r.aMin != null && Math.abs(r.aMin) < 1e-9 && Math.abs(r.bMax - r.L) < 1e-9; } catch (e) { same = false; } finally { this.state = saved; this._c = savedC; }
-    const out = Object.assign({}, cfg, { heat: '' });
-    if (same) out.lenMode = 'oal';
+    try {
+      const r = this.calc();
+      if (cfg.lenMode !== 'oal' && !r.invalid && r.aMin != null) {
+        const dA = -r.aMin, dB = r.bMax - r.L;               // how far each real end runs past its work point
+        out.lenMode = 'oal';
+        if (Math.abs(dA) > 1e-9 || Math.abs(dB) > 1e-9) {
+          const dec = (v) => String(+v.toFixed(5));
+          out.lenT = dec(r.bMax - r.aMin);
+          out.groups = (cfg.groups || []).map(g => {
+            const list = String(g.xsT || '').trim(), sh = g.refEnd === 'A' ? dA : dB;
+            if (list) return Object.assign({}, g, { xsT: list.split(/[,;]+/).map(t => t.trim()).filter(Boolean).map(t => { const v = this.parseIn(t); return v == null ? t : dec(v + sh); }).join(', ') });
+            const x0 = this.parseIn(g.x0T);
+            if (x0 == null) return g;
+            if (g.both && Math.abs(dA - dB) > 1e-9)           // mirrored about the work points, which are no longer the middle
+              return Object.assign({}, g, { both: false, refEnd: 'A', xsT: this.holeXs(g, r.L, 0, r.L, true).sort((a, b) => a - b).map(x => dec(x + dA)).join(', ') });
+            return Object.assign({}, g, { x0T: dec(x0 + sh) });
+          });
+          out.restated = true;
+        }
+      }
+    } catch (e) {} finally { this.state = saved; this._c = savedC; }
     return out;
   }
   /** Run fn with a job-list part loaded as the form state, then put the form back. Synchronous. */
@@ -2024,6 +2123,7 @@ class Component extends DCLogic {
         this.setState({ jobBusy: 'Building ' + (i + 1) + ' of ' + st0.parts.length + '…' });
         await new Promise(r => setTimeout(r, 20));
         try {
+          if (!(pt.qty >= 1)) throw new Error('its quantity is blank');
           const f = this._withPart(pt, () => this._solidFile(eng.oc, eng.m, 'igs'));
           const name = this.jobFileName(pt, f.laser, used);
           files.push({ name, data: f.text });
@@ -2045,7 +2145,7 @@ class Component extends DCLogic {
           const job = (st0.job || '').replace(/[^\w.-]+/g, '-');
           const zipName = (job ? 'JOB-' + job : 'job') + ' - laser files.zip';
           this._download(this._zip(files), zipName, 'application/zip', true);
-          await this._saved(igs, { to: 'download', zip: zipName });
+          await this._saved(igs, { to: 'download', zip: zipName, folderFailed: !!this._fsDir && this.state.fsPerm === 'granted' });
         }
       }
       if (skipped.length) alert((files.length ? 'These parts were left out of the zip:' : 'No files were written.') + '\n\n' + skipped.join('\n') + '\n\nOpen each one from the job list and fix what is shown in red.');
@@ -2103,7 +2203,11 @@ class Component extends DCLogic {
     el.href = url; el.download = name; document.body.appendChild(el); el.click(); el.remove();
     setTimeout(() => URL.revokeObjectURL(url), 4000);
     if (noFolderCopy) return;
-    this._fsWrite(name, text).then(okW => { if (okW) this.setState({ archMsg: name + ' → copied to "' + this.state.fsName + '" ✓' }); });
+    const linked = !!this._fsDir && this.state.fsPerm === 'granted';
+    this._fsWrite(name, text).then(okW => {
+      if (okW) this.setState({ archMsg: name + ' → copied to "' + this.state.fsName + '" ✓' });
+      else if (linked) this.setState({ archMsg: name + ' could NOT be copied to "' + this.state.fsName + '"', saveOk: false, saveMsg: 'Could not copy ' + name + ' into "' + this.state.fsName + '" \u2014 it is in your Downloads folder only.' });
+    });
   }
   // DXF/CSV text must stay plain ASCII — legacy CAM readers (no $DWGCODEPAGE) garble unicode.
   ascii(s) {
@@ -2410,17 +2514,21 @@ class Component extends DCLogic {
     for (const b of hb.list) {
       const bod = D.PIPE_OD[b.nps] || 2.375;
       const bw = (D.PIPE_WALL[b.sch] || D.PIPE_WALL.STD)[b.nps] || .154;
-      const alpha = Math.max(20, Math.min(90, parseFloat(b.alphaT) || 90)) * Math.PI / 180;
-      const dist = this.parseIn(b.distT);
-      const az = ((parseFloat(b.azT) || 0) % 360 + 360) % 360;
+      const aN = this.numStrict(b.alphaT), zN = this.numStrict(b.azT), dist = this.parseIn(b.distT);
+      const bid = 'B' + b.id + ' \u2014 ' + b.nps + ' ' + this.schedLabel(b.sch);
+      if (aN == null || aN < 20 || aN > 90) { out.warns.push(bid + ': joint angle \u201C' + String(b.alphaT == null ? '' : b.alphaT) + '\u201D must be a number from 20 to 90 \u2014 skipped.'); out.skipped = (out.skipped || 0) + 1; continue; }
+      if (zN == null || Math.abs(zN) > 360) { out.warns.push(bid + ': degrees around \u201C' + String(b.azT == null ? '' : b.azT) + '\u201D will not read \u2014 skipped.'); out.skipped = (out.skipped || 0) + 1; continue; }
+      if (dist != null && dist < 0) { out.warns.push(bid + ': distance along the header cannot be negative \u2014 skipped.'); out.skipped = (out.skipped || 0) + 1; continue; }
+      const alpha = aN * Math.PI / 180;
+      const az = (zN % 360 + 360) % 360;
       const sec = { kind: 'round', ro: bod / 2, ri: bod / 2 - bw, od: bod };
       const E = { mode: 'saddle', sd: { hod, hw, hid: out.hid, alpha, roll: 0, seat: hb.seat, Rs: hb.seat === 'on' ? hod / 2 : out.hid / 2, badOd: false } };
       const lbl = 'B' + b.id + ' \u2014 ' + b.nps + ' ' + this.schedLabel(b.sch) + ' @' + Math.round(alpha * 180 / Math.PI) + ' DEG AZ ' + Math.round(az);
-      if (hb.seat === 'on' && bod > hod) { out.warns.push(lbl + ': branch OD is larger than the header \u2014 skipped.'); continue; }
-      if (hb.seat === 'thru' && bod > out.hid) { out.warns.push(lbl + ': branch will not pass the header bore \u2014 skipped.'); continue; }
-      if (dist == null) { out.warns.push(lbl + ': distance will not parse \u2014 skipped.'); continue; }
+      if (hb.seat === 'on' && bod > hod) { out.warns.push(lbl + ': branch OD is larger than the header \u2014 skipped.'); out.skipped = (out.skipped || 0) + 1; continue; }
+      if (hb.seat === 'thru' && bod > out.hid) { out.warns.push(lbl + ': branch will not pass the header bore \u2014 skipped.'); out.skipped = (out.skipped || 0) + 1; continue; }
+      if (dist == null) { out.warns.push(lbl + ': distance will not parse \u2014 skipped.'); out.skipped = (out.skipped || 0) + 1; continue; }
       const hh = this.headerHole(E, sec);
-      if (!hh) { out.warns.push(lbl + ': no valid opening \u2014 skipped.'); continue; }
+      if (!hh) { out.warns.push(lbl + ': no valid opening \u2014 skipped.'); out.skipped = (out.skipped || 0) + 1; continue; }
       const y0 = W * (((az + 180) % 360) / 360);
       const pts = hh.pts.map(p => [dist + p[0], y0 + p[1]]);
       let yMin = 1e9, yMax = -1e9;
@@ -2434,12 +2542,12 @@ class Component extends DCLogic {
       if (a.x1 > b2.x0 - .25 && b2.x1 > a.x0 - .25 && a.yMax > b2.yMin - .25 && b2.yMax > a.yMin - .25)
         out.warns.push(a.lbl + ' and ' + b2.lbl + ' overlap or nearly touch \u2014 check spacing.');
     }
-    return out.curves.length ? out : null;
+    return (out.curves.length || out.warns.length) ? out : null;
   }
   _hdrProgramDxf() {
     const st = this.state, hb = st.hdrB;
     const hc = this.hdrBranchCurves();
-    if (!hc) return null;
+    if (!hc || !hc.curves.length || hc.skipped) return null;   // a skipped branch is a missing opening: no program
     const anno = !!st.dxfRef;
     const Ls = [];
     const w = (code, val) => { Ls.push(String(code), String(val)); };
@@ -2618,9 +2726,12 @@ class Component extends DCLogic {
       if (s.family !== f) this._framed = false;          // new shape: show the whole part again
       // ...and with square ends: a miter, cope or bevel left over from the last
       // shape is an easy thing to miss and a wasted piece if it is.
-      const sq = (e) => Object.assign({}, fix(e), { mode: 'sq', wantCope: false, wantBevel: false });
-      if (s.family !== f) return { family: f, mat, mark, lenMode: 'oal', ends: { A: sq(s.ends.A), B: sq(s.ends.B) }, wantHoles: false, gid: s.gid + 1, groups: [Component.newGroup(s.gid, f)] };
-      return { family: f, mat, mark, ends: { A: fix(s.ends.A), B: fix(s.ends.B) }, groups: s.groups.map(fixG) };
+      // Every end setting goes back to its factory value, the ones inside the
+      // closed "odd size or rolled" and "corner radius" drawers included: a
+      // saddle roll or an access hole from two shapes ago must not come back.
+      if (s.family !== f) return { family: f, mat, mark, lenMode: 'oal', ends: { A: Component.defEnd(), B: Component.defEnd() }, wantHoles: false, gid: s.gid + 1, groups: [Component.newGroup(s.gid, f)] };
+      // the shape already on the form: tidy only, the grade and mark stay as set
+      return { ends: { A: fix(s.ends.A), B: fix(s.ends.B) }, groups: s.groups.map(fixG) };
     });
   }
 
@@ -2759,7 +2870,8 @@ class Component extends DCLogic {
         y0Lbl: g.wref === 'cl' ? 'First row, below center' : g.wref === 'bos' ? 'First row, up from bottom' : 'First row, down from top',
         chip: '\u2192 ' + nOKg + (nAll !== nOKg ? '/' + nAll : '') + ' \u00D7 \u00D8' + this.fr16(dia),
         sFace: setG(g.id, 'face'), sBolt: setG(g.id, 'bolt'), sType: setG(g.id, 'type'), sRef: setG(g.id, 'refEnd'), sAx: setG(g.id, 'ax'),
-        sX0: setG(g.id, 'x0T'), sP: setG(g.id, 'pT'), sN: setG(g.id, 'nT'),
+        // typing here means "use these boxes": an exact-distances list hidden under More options no longer overrides them
+        sX0: (e) => patchG(g.id, { x0T: e.target.value, xsT: '' })(), sP: (e) => patchG(g.id, { pT: e.target.value, xsT: '' })(), sN: (e) => patchG(g.id, { nT: e.target.value, xsT: '' })(),
         sAz: setG(g.id, 'azT'), sAzn: setG(g.id, 'aznT'), sAzp: setG(g.id, 'azpT'), sOff: setG(g.id, 'offT'),
         sWref: setG(g.id, 'wref'), sY0: setG(g.id, 'y0T'), sNy: setG(g.id, 'nyT'), sPy: setG(g.id, 'pyT'), sAmode: setG(g.id, 'amode'), sG: setG(g.id, 'gT'), sDia: setG(g.id, 'diaT'),
         hasFaces: faceOptsFor.length > 1,
@@ -2774,7 +2886,7 @@ class Component extends DCLogic {
           return {
             isPlateG: true, notPlateG: false,
             faceBtns: [fb('Web', web, { face: 'web', bothF: false }), fb('Top flange', g.face === 'tf' && !g.bothF, { face: 'tf', bothF: false }), fb('Bottom flange', g.face === 'bf' && !g.bothF, { face: 'bf', bothF: false }), fb('Both flanges', !web && !!g.bothF, { face: 'tf', bothF: true })],
-            endSel: g.both ? 'AB' : g.refEnd,
+            endSel: g.both && !String(g.xsT || '').trim() ? 'AB' : g.refEnd,
             sEndSel: (e) => { const v = e.target.value; patchG(g.id, v === 'AB' ? { both: true, refEnd: 'A', xsT: '' } : { both: false, refEnd: v })(); },
             showAutoY: web && dd > 0, autoYS: pill(!!g.autoY),
             tgAutoY: patchG(g.id, g.autoY ? { autoY: false, wref: 'tos', y0T: this.fmtTok((dd - (ny - 1) * py) / 2) } : { autoY: true }),
@@ -2848,20 +2960,22 @@ class Component extends DCLogic {
     const hhB = c.kind === 'round' && c.B && c.B.mode === 'saddle' ? this.headerHole(c.B, c.sec) : null;
 
     const jobParts = st.parts.map(pt => ({
-      id: pt.id, mark: pt.mark, desc: pt.desc, len: pt.lenT2, qtyT: '\u00D7' + pt.qty, qty: pt.qty, wt: Math.round(pt.wt * pt.qty) + ' LB', code: pt.code,
+      id: pt.id, mark: pt.mark, desc: pt.desc, len: pt.lenT2, qtyT: '\u00D7' + pt.qty, qty: pt.qtyT != null ? pt.qtyT : pt.qty, wt: Math.round(pt.wt * pt.qty) + ' LB', code: pt.code,
       cardS: pt.id === st.editId ? { borderColor: '#1F3A5F', boxShadow: 'inset 3px 0 0 #1F3A5F' } : {},
       openLbl: pt.id === st.editId ? 'Editing\u2026' : 'Open to edit',
-      sQty: (e) => { const q = Math.max(1, Math.round(+e.target.value || 1)); this.setState(s => ({ parts: s.parts.map(x => x.id === pt.id ? Object.assign({}, x, { qty: q }) : x), qty: s.editId === pt.id ? q : s.qty })); },
-      load: () => { const cfg0 = this.cfgFromPart(pt); if (!cfg0) return; const cfg = this.forForm(cfg0); this.setState(s => Object.assign({ step: 5 }, cfg, { editId: pt.id, markStash: s.editId != null ? s.markStash : s.mark })); },
+      // what is typed stays in the box; until it is a whole number the part counts as 0 and cannot be saved
+      sQty: (e) => { const t = String(e.target.value).trim(), v = this.numStrict(t), good = v != null && v >= 1 && v === Math.round(v) && v <= 9999; this.setState(s => ({ parts: s.parts.map(x => x.id === pt.id ? Object.assign({}, x, { qty: good ? v : 0, qtyT: t }) : x), qty: s.editId === pt.id ? (good ? v : t) : s.qty })); },
+      load: () => { const cfg0 = this.cfgFromPart(pt); if (!cfg0) { alert(pt.mark + ': its saved setup cannot be read back with confidence.\n\nBuild this part again as a new part.'); return; } const cfg = this.forForm(cfg0); const re = !!cfg.restated; delete cfg.restated; cfg.heat = cfg0.heat || ''; this.setState(s => Object.assign({ step: 5 }, cfg, { editId: pt.id, markStash: s.editId != null ? s.markStash : s.mark, saveOk: true, saveMsg: re ? 'Older part: its length and hole distances are now shown end to end. It is the same piece.' : '' })); },
       dup: () => this.setState(s => ({ parts: s.parts.concat([Object.assign({}, pt, { id: Date.now() + Math.random(), code: this.newCode() })]) })),
       del: () => this.setState(s => ({ parts: s.parts.filter(x => x.id !== pt.id), editId: s.editId === pt.id ? null : s.editId }))
     }));
     const editPt = st.editId != null ? st.parts.find(x => x.id === st.editId) : null;
     const errList = c.warns.filter(w => w.lvl === 'err');
-    const markBad = this.markIssue(), moreErr = (c.errCount || 0) - errList.length;
+    const markBad = this.formIssues().join(' '), moreErr = (c.errCount || 0) - errList.length;
     const fsOn = !!st.fsName && this._fsSupported(), rv = st.review ? this.reviewInfo(st.review) : null;
     // "One wall only" is how every tube-laser hole works, not a problem with this part: it is a hint under Holes.
     const cautionList = c.warns.filter(w => w.lvl !== 'err' && !/ONE wall/.test(w.t) && !/^Loading/.test(w.t));
+    { const lc = this.lenCaution(c); if (lc) cautionList.unshift({ lvl: 'warn', t: lc }); }
     const oneWall = c.warns.some(w => /ONE wall/.test(w.t));
     const bevOn = ['A', 'B'].filter(k => st.ends[k].wantBevel);
     const matShort = { A36: 'A36', A992: 'A992', 'A572-50': 'A572-50', A500B: 'A500-B', A53B: 'A53-B', A106B: 'A106-B', A588: 'A588', '304L': '304L SS', '316L': '316L SS', AL6061: '6061 alum' };
@@ -3017,7 +3131,7 @@ class Component extends DCLogic {
       invalid: c.invalid || errN > 0,
       addOff: c.invalid || errN > 0 || !!markBad,
       job: st.job, heat: st.heat, qty: st.qty, onJob: setS('job'), onHeat: setS('heat'),
-      onQty: (e) => this.setState({ qty: Math.max(1, Math.round(+e.target.value || 1)) }),
+      onQty: (e) => { const t = String(e.target.value).trim(), v = this.numStrict(t); this.setState({ qty: v != null && v >= 1 && v === Math.round(v) ? v : t }); },
       specShape: this.famLabel() + ' \u00B7 ' + c.sec.label,
       specCL: Lok ? this.fmtFtIn(c.L) : '\u2014',
       specLP: c.invalid ? '\u2014' : this.fmtFtIn(c.LP),
@@ -3117,7 +3231,7 @@ class Component extends DCLogic {
       recallMsg: st.recallMsg,
       doRecall: () => {
         const cfg = this.decodeCfg(st.recallT);
-        if (cfg) this.setState(Object.assign({ step: 5, recallMsg: 'Loaded \u2713', recallT: '' }, this.forForm(cfg)));
+        if (cfg) { const ff = this.forForm(cfg), re = !!ff.restated; delete ff.restated; this.setState(s => Object.assign({ step: 5, recallMsg: re ? 'Loaded \u2713 \u2014 older part: length and hole distances are now shown end to end. Same piece.' : 'Loaded \u2713', recallT: '' }, ff, { editId: null, markStash: null })); }
         else this.setState({ recallMsg: 'Bad code \u2014 paste the whole part code (starts SPFPB)' });
       },
       lenModeWp: () => this.setState({ lenMode: 'wp' }),
@@ -3129,7 +3243,7 @@ class Component extends DCLogic {
         const last = this.state.parts[this.state.parts.length - 1];
         if (!last) return;
         const cfg = this.cfgFromPart(last);
-        if (cfg) this.setState(Object.assign({}, this.forForm(cfg), { mark: this.state.mark, step: 1 }));
+        if (cfg) { const ff = this.forForm(cfg); delete ff.restated; this.setState(Object.assign({}, ff, { mark: this.state.mark, step: 1 })); }
       },
       hbNps: st.hdrB.nps, hbSch: st.hdrB.sch,
       hbNpsOpts: npsOpts, hbSchedOpts: schedOpts,
@@ -3175,8 +3289,9 @@ class Component extends DCLogic {
       hbDxf: () => {
         const hcv = this.hdrBranchCurves();
         if (!hcv) return;
-        const seam = hcv.warns.filter(w2 => w2.includes('seam'));
-        if (seam.length) { alert('FIX BEFORE CUTTING \u2014 no program written:\n\n' + seam.join('\n') + '\n\nSpin those branch clock positions off 180\u00B0.'); return; }
+        // a branch the app had to skip is an opening missing from the header: no program
+        const stop = hcv.warns.filter(w2 => w2.includes('seam') || w2.includes('skipped'));
+        if (stop.length || !hcv.curves.length) { alert('FIX BEFORE CUTTING \u2014 no program written:\n\n' + (stop.join('\n') || 'No branch could be laid out.') + '\n\nEvery branch has to read and fit before the header file is made.'); return; }
         if (hcv.warns.length && !confirm('CHECK BEFORE CUTTING:\n\n' + hcv.warns.join('\n') + '\n\nGenerate the header DXF anyway?')) return;
         const t = this._hdrProgramDxf();
         if (t) this._download(t, ('HEADER_' + st.hdrB.nps + 'in_' + this.schedLabel(st.hdrB.sch) + (st.job ? '_' + st.job : '')).replace(/[^\w.-]+/g, '-') + '.dxf', 'application/dxf');
@@ -3190,7 +3305,7 @@ class Component extends DCLogic {
         this.setState(s2 => {
           const archive = s2.parts.length ? [this._mkArch(s2)].concat(s2.archive).slice(0, 200) : s2.archive;
           this._saveArchive(archive);
-          return Object.assign(Component.freshPart(), { archive, parts: [], editId: null, lenMode: 'oal', job: '', stickSel: {}, jobOpen: true, recallT: '', recallMsg: '', archQ: '', hdrB: { nps: '10', sch: '40', seat: 'on', hid: 1, list: [] }, archMsg: s2.parts.length ? 'Filed ' + (s2.job || 'job') + ' to PAST JOBS \u2713' : 'Fresh job \u2713' });
+          return Object.assign(Component.freshPart(), { archive, parts: [], editId: null, lenMode: 'oal', job: '', stickSel: {}, jobOpen: true, recallT: '', recallMsg: '', archQ: '', dxfRef: false, saveMsg: '', hdrB: { nps: '10', sch: '40', seat: 'on', hid: 1, list: [] }, archMsg: s2.parts.length ? 'Filed ' + (s2.job || 'job') + ' to PAST JOBS \u2713' : 'Fresh job \u2713' });
         });
       },
       archCount: st.archive.length ? st.archive.length + ' saved' : 'none yet',
@@ -3268,7 +3383,7 @@ class Component extends DCLogic {
   addToJob(asNew) {
     const c = this.calc(), st = this.state;
     if (this.blocked(c)) return;
-    if (!(asNew && st.editId != null) && this.markIssue()) return;
+    if (this.qtyIssue() || (!(asNew && st.editId != null) && this.markIssue())) return;
     const cfg = this.snapshot();
     const old = !asNew && st.editId != null ? st.parts.find(x => x.id === st.editId) : null;
     const part = {
@@ -3298,7 +3413,7 @@ class Component extends DCLogic {
       try {
         x = this._withPart(p, () => {
           const c = this.calc();
-          if (this.blocked(c)) return ['', '', '', 'NOT SAVED - fix the part'];
+          if (this.blocked(c) || !(p.qty >= 1)) return ['', '', '', 'NOT SAVED - fix the part'];
           return [this.endSpecText(c.A || {}, c.sec), this.endSpecText(c.B || {}, c.sec), String(c.holes.filter(h => h.ok).length), this.jobFileName(p, this.laserBase(), used)];
         });
       } catch (e) { x = ['', '', '', 'NOT SAVED - fix the part']; }
