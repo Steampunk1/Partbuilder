@@ -3075,6 +3075,11 @@ class Component extends DCLogic {
     const errList = c.warns.filter(w => w.lvl === 'err');
     const markBad = this.formIssues().join(' '), moreErr = (c.errCount || 0) - errList.length;
     const fsOn = !!st.fsName && this._fsSupported(), rv = st.review ? this.reviewInfo(st.review) : null;
+    // The line under the save button ("Saved ...") belongs to the part it was written for: it goes away as
+    // soon as anything on the form changes, so an old "Saved" is never read as covering the part now on screen.
+    const noteKey = c.key + '|' + st.mark + '|' + st.qty + '|' + st.job;
+    if (st.saveMsg !== this._noteMsg) { this._noteMsg = st.saveMsg; this._noteKey = noteKey; }
+    const noteOn = !!st.saveMsg && this._noteKey === noteKey;
     // "One wall only" is how every tube-laser hole works, not a problem with this part: it is a hint under Holes.
     const cautionList = c.warns.filter(w => w.lvl !== 'err' && !/ONE wall/.test(w.t) && !/^Loading/.test(w.t));
     { const lc = this.lenCaution(c); if (lc) cautionList.unshift({ lvl: 'warn', t: lc }); }
@@ -3264,7 +3269,7 @@ class Component extends DCLogic {
       igsSub: (c.invalid || errN > 0 || markBad) ? 'fix the red list first \u2014 nothing can be saved yet' : 'this part \u2014 IGS file for TubesT \u2192 ' + (fsOn ? st.fsName : 'Downloads'),
       solidBusy: !!st.solidBusy || !!st.jobBusy || c.invalid || errN > 0,
       saveOff: !!st.solidBusy || !!st.jobBusy || c.invalid || errN > 0 || !!markBad,
-      hasSaveMsg: !!st.saveMsg, saveMsg: st.saveMsg,
+      hasSaveMsg: noteOn, saveMsg: st.saveMsg,
       saveMsgS: { font: '600 12px/1.45 JetBrains Mono, monospace', color: st.saveOk ? '#1F6F43' : '#B3261E', wordBreak: 'break-word' },
       // laser folder line under the save button
       fsLine: !this._fsSupported() ? 'Files go to Downloads. Chrome or Edge can save straight into the laser folder.' : !st.fsName ? 'No laser folder chosen \u2014 files go to Downloads.' : st.fsPerm === 'granted' ? 'Laser folder: ' + st.fsName + ' \u2713' : 'Laser folder: ' + st.fsName + ' \u2014 you will be asked to allow it when you save.',

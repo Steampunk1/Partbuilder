@@ -143,6 +143,10 @@ try {
   const saved = jobDir && jobDir.files.get('P-1_6-SCH-40_A106B_48in - QTY 4.igs');
   ok(!!saved && saved.data.length > 1000 && c._dl.length === 0, 'the laser file is in the job folder and nothing went to Downloads', jobDir ? [...jobDir.files.keys()].join(' | ') : 'no job folder');
   ok(c.state.saveOk && /Saved P-1_6-SCH-40_A106B_48in - QTY 4\.igs → Laser › JOB_2611/.test(c.state.saveMsg), 'the form says exactly where it went', c.state.saveMsg);
+  ok(c.renderVals().hasSaveMsg === true, 'the Saved line shows for the part that was just saved');
+  c.setState({ lenT: '47 3/4' });
+  ok(c.renderVals().hasSaveMsg === false, 'the Saved line goes away the moment the form changes (an old "Saved" never covers an edited part)');
+  c.setState({ lenT: '48' });
   if (saved) {
     // the reader hands back millimetres for a file that declares inches
     const info = inspect(K, readBack(K, saved.data, 'iges')), lenIn = (info.bbox[0][1] - info.bbox[0][0]) / 25.4;
