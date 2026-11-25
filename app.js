@@ -397,6 +397,9 @@ class Component extends DCLogic {
    *  Every other bevel (angled or fish-mouth ends, beam, channel, angle) is not in the file - it is named in the
    *  file name for the operator to add. Set this false and every bevel is name-only. */
   static BEVEL_IN_FILE = true;
+  /** false until a bevelled trial piece has been cut on the shop laser and measured right. While false, the
+   *  check card tells whoever saves a bevelled part to measure the first piece. */
+  static BEVEL_PROVEN = false;
   /** The circle a section turns in, in inches: OD for round, corner to corner for everything else. */
   static envelope(sec) {
     if (!sec) return 0;
@@ -3448,7 +3451,7 @@ class Component extends DCLogic {
       rvHasSp: !!(rv && rv.one && rv.one.sp),
       rvRows: rv ? rv.rows.map(r => ({ mark: r.mark, qty: '\u00D7' + r.qty, txt: r.bad ? 'LEFT OUT \u2014 ' + (r.why || 'has an error') : r.stock + ' \u00B7 ' + r.len + ((r.endA !== 'Square cut' || r.endB !== 'Square cut') ? ' \u00B7 A: ' + r.endA + ' \u00B7 B: ' + r.endB : '') + (r.holes !== 'None' ? ' \u00B7 holes: ' + r.holes : ''), s: { color: r.bad ? '#B3261E' : '#14181D', font: (r.bad ? '700' : '400') + ' 12.5px/1.45 Barlow, sans-serif' } })) : [],
       rvDest: rv ? rv.dest : '', rvNoJob: !!rv && rv.noJob,
-      rvBevelIn: !!rv && !!rv.bevelIn, rvBevelAdd: !!rv && !!rv.bevelAdd,
+      rvBevelIn: !!rv && !!rv.bevelIn && Component.BEVEL_PROVEN, rvBevelTrial: !!rv && !!rv.bevelIn && !Component.BEVEL_PROVEN, rvBevelAdd: !!rv && !!rv.bevelAdd,
       rvHasCautions: !!rv && rv.cautions.length > 0, rvCautions: rv ? rv.cautions.map(t => ({ t })) : [],
       rvHasOut: !!rv && rv.out > 0, rvOutTxt: rv && rv.out ? rv.out + ' part' + (rv.out > 1 ? 's' : '') + ' cannot be saved and will be LEFT OUT. Open ' + (rv.out > 1 ? 'each one' : 'it') + ' from the job list and fix what is shown in red.' : '',
       rvGoLbl: rv ? (rv.kind === 'job' ? (rv.n ? 'Save ' + rv.n + ' laser file' + (rv.n > 1 ? 's' : '') : 'Nothing to save') : 'Save laser file') : '',

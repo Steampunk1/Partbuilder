@@ -199,6 +199,9 @@ async function run(name, c, spec, opt = {}) {
   ok(/cut by the laser \(outside edge 0\.167″ back/.test(c.endWords(r.A, r.sec)), 'check card says the laser cuts it and how far back the outside edge is', c.endWords(r.A, r.sec));
   ok(/IN LASER FILE/.test(c.endSpecText(r.A, r.sec)), 'cut list and ticket say IN LASER FILE', c.endSpecText(r.A, r.sec));
   const rv = c.reviewInfo('part'); ok(rv.bevelIn === true && rv.bevelAdd === false, 'check card: bevel is in the file, nothing for the operator to add');
+  c.askSave('part'); { const v = c.renderVals(); ok(Component.BEVEL_PROVEN === false && v.reviewOpen && v.rvBevelTrial === true && v.rvBevelIn === false, 'until a trial piece is proven on the laser, the check card says to measure the first bevelled piece');
+    Component.BEVEL_PROVEN = true; try { const w = c.renderVals(); ok(w.rvBevelTrial === false && w.rvBevelIn === true, 'once proven, the check card only notes that the bevel is in the file'); } finally { Component.BEVEL_PROVEN = false; } }
+  c.setState({ reviewOpen: false });
 
   // a bevel the app cannot draw is never passed off as drawn
   setEnd(c, 'B', { mode: 'miter', maT: '22.5', mrT: '0' });
