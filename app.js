@@ -352,6 +352,8 @@ class Component extends DCLogic {
   // ---------- typed-input check ----------
   /** The shop laser's bevel head tilts this far and no further. */
   static BEVEL_MAX = 45;
+  /** What the shop laser takes: largest round it swings (inches OD) and longest piece (inches). */
+  static LASER = { maxOD: 14, maxLen: 42 * 12 };
   /** A weld-access hole stops this far short of the flange underside: a round cut that only touches a flat
    *  face leaves a zero-width edge that the laser file cannot carry. */
   static RAT_GAP = 0.005;
@@ -374,7 +376,13 @@ class Component extends DCLogic {
     // --- the section
     if (sec.unknown) out.push(sec.unknown);
     if (this.D && this.D.MATERIALS && !this.D.MATERIALS.some(m => m.id === st.mat)) out.push('The grade is not in the list \u2014 pick it again.');
-    { const Lt = inch(st.lenT); if (Lt != null && Lt > 0 && Lt < .25) out.push('Cut length ' + txt(st.lenT) + ' is under 1/4\u2033 \u2014 check it.'); if (Lt != null && Lt > 576) out.push('Cut length ' + this.fmtFtIn(Lt) + ' is longer than a 48 ft stick.'); }
+    {
+      const Lt = inch(st.lenT), LZ = Component.LASER, over = c && !c.invalid && (c.OAL || c.L) > 0 ? (c.OAL || c.L) : Lt;
+      if (Lt != null && Lt > 0 && Lt < .25) out.push('Cut length ' + txt(st.lenT) + ' is under 1/4\u2033 \u2014 check it.');
+      if (over != null && over > LZ.maxLen + 1e-6) out.push('This piece is ' + this.fmtFtIn(over) + ' overall \u2014 the laser takes ' + this.fmtFtIn(LZ.maxLen) + ' at most.');
+      else if (Lt != null && Lt > 576) out.push('Cut length ' + this.fmtFtIn(Lt) + ' is longer than a 48 ft stick.');   // no stock is longer, whatever the machine
+      if (round && sec.od > LZ.maxOD + 1e-6) out.push(sec.label + ' is ' + (+sec.od.toFixed(3)) + '\u2033 OD \u2014 the laser takes ' + LZ.maxOD + '\u2033 OD at most.');
+    }
     if (f === 'tube') {
       const od = pos(st.todT), w = pos(st.twallT);
       if (od == null) cant('Tube OD', st.todT);
@@ -545,6 +553,11 @@ class Component extends DCLogic {
     c.key = key; c.sec = sec;
     { const d2 = (!c.invalid && c.aMin != null && c.bMax != null) ? this.datum(c.aMin, c.bMax, c.L) : [0, c.L || 0]; c.x0 = d2[0]; c.x1 = d2[1]; }
     if (this.D) for (const t of this.inputErrs(c)) (c.warns = c.warns || []).push({ lvl: 'err', t });
+    if (this.D && !c.invalid) {
+      const s2 = c.sec || {}, lim = Component.LASER.maxOD;
+      const env = s2.kind === 'box' ? 2 * (Math.hypot(s2.H / 2 - s2.rc, s2.B / 2 - s2.rc) + s2.rc) : s2.kind === 'plate' ? Math.hypot(s2.d, s2.bf) : s2.kind === 'angl' ? Math.hypot(s2.a, s2.b) : 0;
+      if (env > lim + 1e-6) (c.warns = c.warns || []).push({ lvl: 'warn', t: s2.label + ' is ' + env.toFixed(2) + '\u2033 corner to corner \u2014 more than the laser\u2019s ' + lim + '\u2033 round capacity. Check that it fits the machine before cutting.' });
+    }
     // Red items first and never crowded out by cautions: one dropped red item
     // would let a part with a known fault through to the laser.
     const dup = {};
@@ -3134,7 +3147,7 @@ class Component extends DCLogic {
       pickPipe: this.pickFam('pipe'), pickTube: this.pickFam('tube'), pickHss: this.pickFam('hss'), pickBeam: this.pickFam('beam'), pickChan: this.pickFam('chan'), pickAngl: this.pickFam('angl'),
       fbPipe: famBtn('pipe'), fbTube: famBtn('tube'), fbHss: famBtn('hss'), fbBeam: famBtn('beam'), fbChan: famBtn('chan'), fbAngl: famBtn('angl'),
       isPipe: st.family === 'pipe', isTube: st.family === 'tube', isHss: st.family === 'hss', isBeam: st.family === 'beam', isChan: st.family === 'chan', isAngl: st.family === 'angl',
-      pnps: st.pnps, psch: st.psch, onPnps: setS('pnps'), onPsch: setS('psch'), pipeNpsOpts: npsOpts, pipeSchedOpts: schedOpts,
+      pnps: st.pnps, psch: st.psch, onPnps: setS('pnps'), onPsch: setS('psch'), pipeNpsOpts: npsOpts.filter(o => !D || D.PIPE_OD[o] <= Component.LASER.maxOD + 1e-6 || o === st.pnps), pipeSchedOpts: schedOpts,   // the part's own size: only what the laser takes (a header it fits against can be any size)
       todT: st.todT, twallT: st.twallT, onTod: setS('todT'), onTwall: setS('twallT'),
       tubeWallOpts: (D ? D.TUBE_WALLS : []).map(w2 => ({ l: w2[0], v: w2[1] })),
       onTwallPick: (e) => { if (e.target.value) this.setState({ twallT: e.target.value }); },

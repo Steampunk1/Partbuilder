@@ -13,6 +13,10 @@ class DCLogic {
 const make = new Function('DCLogic', 'React', 'localStorage', 'fetch', 'location', 'alert', 'confirm', 'document', 'window', 'qrcode', 'indexedDB', '"use strict";\n' + src + '\n;return Component;');
 export const Component = make(DCLogic, { createRef: () => ({ current: null }) }, { getItem: () => null, setItem() {}, removeItem() {} }, () => Promise.reject(new Error('offline')), { href: 'http://localhost/' }, () => {}, () => true, undefined, undefined, undefined, undefined);
 export const DB = PROFILE_DB;
+// The geometry suites and sweeps cover every size in the tables, so they run with the shop laser's capacity
+// lifted. LASER_AS_SHIPPED is what the app ships with; test/laser-ready.mjs puts it back to test the limits.
+export const LASER_AS_SHIPPED = Object.assign({}, Component.LASER);
+Component.LASER = { maxOD: Infinity, maxLen: Infinity };
 export async function fresh(patch) {
   const c = new Component({ stations: '192', holeSegs: '28', edgeGlow: true });
   await new Promise(r => setTimeout(r, 0));

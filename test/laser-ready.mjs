@@ -3,7 +3,7 @@
 // a save into the linked laser folder lands where the app says it did.
 // Run:  node test/laser-ready.mjs
 import { loadOcc } from './_occ.mjs';
-import { freshApp, Component } from './_load.mjs';
+import { freshApp, Component, LASER_AS_SHIPPED } from './_load.mjs';
 import { readBack, inspect, kit } from '../occ-solid.js';
 
 let pass = 0, fail = 0; const fails = [];
@@ -79,6 +79,37 @@ const grp = (c, p) => ({ wantHoles: true, groups: [{ ...c.state.groups[0], ...p 
   good.setState(grp(good, { type: 'cust', diaT: '1 1/2', xsT: '6, 12 1/2, 30', azT: '90', aznT: '2', azpT: '180' }));
   ok(!good.blocked(good.calc()), 'a correct part with a 45 degree bevel, miter and exact distances is not blocked', errs(good).join(' | '));
   ok(good.calc().A.bv === 45, 'bevel 45 is carried as 45');
+}
+
+// ---------- 1b. what the laser takes: 14 in OD, 42 ft ----------
+{
+  ok(LASER_AS_SHIPPED.maxOD === 14 && LASER_AS_SHIPPED.maxLen === 504, 'the app ships with the laser at 14 in OD and 42 ft', JSON.stringify(LASER_AS_SHIPPED));
+  Component.LASER = Object.assign({}, LASER_AS_SHIPPED);
+  try {
+    const p14 = await freshApp({ lenT: "42'-0", pnps: '14', psch: 'STD' });
+    ok(!p14.blocked(p14.calc()), '14 in pipe, 42 ft long is allowed', errs(p14).join(' | '));
+    const p16 = await freshApp({ lenT: '48', pnps: '16', psch: 'STD' });
+    ok(p16.blocked(p16.calc()) && errs(p16).some((t) => /16\u2033 OD/.test(t) && /14\u2033 OD at most/.test(t)), '16 in pipe is refused', errs(p16).join(' | '));
+    const long = await freshApp({ lenT: "42'-0 1/16" });
+    ok(long.blocked(long.calc()) && errs(long).some((t) => /laser takes 42\u2032-0\u2033 at most/.test(t)), 'a piece 1/16 over 42 ft is refused', errs(long).join(' | '));
+    // overall length is what counts: 41'-11 typed centre to centre is not the test, the long points are
+    const mit = await freshApp({ lenT: "42'-0" }); mit.setState(end(mit, 'A', { mode: 'miter', maT: '45', mrT: '0' }));
+    ok(!mit.blocked(mit.calc()) && Math.abs(mit.calc().OAL - 504) < 1e-6, 'a mitered piece typed 42 ft end to end is 42 ft overall and allowed', mit.calc().OAL);
+    const t = await freshApp(); t.pickFam('tube')(); t.setState({ lenT: '48', todT: '14 1/8', twallT: '1/4' });
+    ok(t.blocked(t.calc()) && errs(t).some((x) => /14\u2033 OD at most/.test(x)), 'round tube over 14 in OD is refused', errs(t).join(' | '));
+    // the size list for the part itself stops at 14 in; the "fits against" list for a saddle does not
+    const v = (await freshApp({ lenT: '48' })).renderVals();
+    ok(!v.pipeNpsOpts.includes('16') && v.pipeNpsOpts.includes('14') && v.endSteps[0].npsOpts.includes('24'), 'pipe size list stops at 14 in; a saddle can still fit against a 24 in header', v.pipeNpsOpts.join(','));
+    // an older part saved at 16 in still shows its size in the list, with the red item
+    const old16 = (await freshApp({ lenT: '48', pnps: '16' })).renderVals();
+    ok(old16.pipeNpsOpts.includes('16') && old16.hasErr, 'a saved 16 in part still shows its size, flagged red');
+    // other shapes: over 14 in corner to corner is a caution to check, not a stop
+    const b = await freshApp(); b.pickFam('beam')(); b.setState({ lenT: '60', bser: 'W', bsize: 'W16x40' });
+    const cb = b.calc();
+    ok(!b.blocked(cb) && cb.warns.some((w) => w.lvl === 'warn' && /corner to corner/.test(w.t)), 'W16x40 (17 in corner to corner) gets a "check that it fits" caution, not a stop', cb.warns.map((w) => w.t).join(' | '));
+    const h = await freshApp(); h.pickFam('hss')(); h.setState({ lenT: '60', hsize: '4x4', hwallT: '1/4' });
+    ok(!h.calc().warns.some((w) => /corner to corner/.test(w.t)), '4x4 tube gets no size caution');
+  } finally { Component.LASER = { maxOD: Infinity, maxLen: Infinity }; }
 }
 
 // ---------- 2. laser file names ----------
