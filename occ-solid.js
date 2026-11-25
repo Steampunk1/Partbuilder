@@ -10,6 +10,7 @@
 // +Z = 90 deg. Runs in the browser and in Node (test/).
 
 import { edgeAgreement } from './iges-check.js';
+export { edgeAgreement };
 
 export function kit(oc) {
   const cache = {};
@@ -122,7 +123,13 @@ function pipeSolid(K, comp, r) {
   const { ro, ri } = r.sec, L = r.L, PAD = 2 * ro + 4;
   const sq = (E) => !E || E.mode === 'sq' || (E.mode !== 'miter' && E.mode !== 'saddle');
   const x0 = sq(r.A) ? 0 : Math.min(...r.a) - PAD, x1 = sq(r.B) ? L : Math.max(...r.b) + PAD;
-  let s = K.cut(K.cyl([x0, 0, 0], [1, 0, 0], ro, x1 - x0), K.cyl([x0 - 1, 0, 0], [1, 0, 0], ri, x1 - x0 + 2));
+  // The pipe is cut from the true cylinder (every cut edge exact). Only if that solid's laser file fails its
+  // edge check does the app ask for a second build (comp._nurbsFirst): the pipe and every drilling tool are
+  // turned into the file's own surface type BEFORE the cuts, so nothing has to be re-mapped when the file is
+  // written. That second solid is used only after it has been checked against this one (sameEdges below).
+  const second = !!(comp && comp._nurbsFirst === true);
+  const toN = (sh) => second ? K.done(K.mk('BRepBuilderAPI_NurbsConvert', sh, true)) : sh;
+  let s = toN(K.cut(K.cyl([x0, 0, 0], [1, 0, 0], ro, x1 - x0), K.cyl([x0 - 1, 0, 0], [1, 0, 0], ri, x1 - x0 + 2)));
   const { fA, fB } = comp.roundCutFns(r.sec, L, r.A, r.B, []);
   const endCut = (E, isA) => {
     if (sq(E)) return;
@@ -151,8 +158,8 @@ function pipeSolid(K, comp, r) {
     // the laser follows the OUTER edge. Plain / set-on openings: a true drilled cylinder gives that edge.
     // A branch that must pass through is held at the pipe ID, so its outer edge is wider across (x ro/ri).
     const wide = h.rho && h.ro ? h.ro / h.rho : 1;
-    if (wide <= 1 + 1e-9) s = K.cut(s, K.cyl([h.x, 0, 0], n, rad, ro + 2));
-    else s = K.cut(s, K.prism(K.ellipseFace([h.x, 0, 0], n, t, rad * wide, rad), n.map(v => v * (ro + 2))));
+    if (wide <= 1 + 1e-9) s = K.cut(s, toN(K.cyl([h.x, 0, 0], n, rad, ro + 2)));
+    else s = K.cut(s, toN(K.prism(K.ellipseFace([h.x, 0, 0], n, t, rad * wide, rad), n.map(v => v * (ro + 2)))));
   }
   return s;
 }
@@ -258,6 +265,13 @@ export function buildSolid(oc, comp, r) {
   if (r.invalid) throw new Error('part has errors - fix them first');
   const shape = r.kind === 'round' ? pipeSolid(K, comp, r) : r.kind === 'box' ? boxSolid(K, comp, r) : r.kind === 'plate' ? plateSolid(K, comp, r) : angleSolid(K, comp, r);
   return { K, shape };
+}
+
+/** Is every edge of solid b lying on the surface of solid a, within tol (inches)? Asked both ways round, it
+ *  says two solids built differently are the same piece: same ends, same holes, nothing extra, nothing missing. */
+export function sameEdges(K, a, b, tol) {
+  for (const p of K.edgePoints(b, 6)) if (!K.onSurface(a, p, tol)) return false;
+  return true;
 }
 
 /** Facts about a built solid, measured by the kernel. */

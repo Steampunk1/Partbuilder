@@ -255,7 +255,7 @@ function fileSurfaces(T, ex, spec) {
 // ------------------------------------------------------------------ L2: the exported IGES
 function checkIges(c, r, ex, spec) {
   const sec = ex.sec, cap = {};
-  const m = { buildSolid: (...a) => { const o = occm.buildSolid(...a); cap.K = o.K; cap.shape = o.shape; return o; }, inspect: (...a) => (cap.info = occm.inspect(...a)), writeIges: occm.writeIges, writeStep: occm.writeStep };
+  const m = { buildSolid: (...a) => { const o = occm.buildSolid(...a); cap.K = o.K; cap.shape = o.shape; return o; }, inspect: (...a) => (cap.info = occm.inspect(...a)), writeIges: occm.writeIges, writeStep: occm.writeStep, sameEdges: occm.sameEdges, edgeAgreement: occm.edgeAgreement };   // the app hands _solidFile the whole module
   let f; const t0 = Date.now();
   try { f = c._solidFile(oc, m, 'igs'); } catch (e) { rec('export.runs', false, { what: 'the export path (_solidFile) writes a file', expected: 'IGES text', measured: String(e && e.message || e).slice(0, 160) }); if (!(e instanceof Error) || !/^(The solid|Fix the items)/.test(e.message)) throw e; return; }
   rec('export.runs', true); nBuilt++;

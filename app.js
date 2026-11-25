@@ -607,24 +607,26 @@ class Component extends DCLogic {
     }
     // The stations only draw the cut. The long and short points themselves are found
     // exactly: a miter turned to an odd angle puts its long point between two stations.
+    const tips = [];
     {
       const xaF = (phi) => fA(phi), xbF = (phi) => (B.mode === 'saddle' ? L - fB(phi) : L + fB(phi));
       const best = (f, sign, i0) => {          // refine the station extreme of f (sign +1: maximum, -1: minimum) between its neighbours
         let lo = (i0 - 1) / N * 2 * Math.PI, hi = (i0 + 1) / N * 2 * Math.PI;
         for (let k = 0; k < 60; k++) { const m1 = lo + (hi - lo) / 3, m2 = hi - (hi - lo) / 3; if (sign * f(m1) < sign * f(m2)) lo = m1; else hi = m2; }
-        return f((lo + hi) / 2);
+        const ph = (lo + hi) / 2; return { v: f(ph), phi: ph };
       };
       const at = (arr, sign) => { let bi = 0; for (let i = 1; i < N; i++) if (sign * arr[i] > sign * arr[bi]) bi = i; return bi; };
       const span = a.map((v, i) => b[i] - v);
-      aMin = Math.min(aMin, best(xaF, -1, at(a, -1))); aMax = Math.max(aMax, best(xaF, 1, at(a, 1)));
-      bMax = Math.max(bMax, best(xbF, 1, at(b, 1))); bMin = Math.min(bMin, best(xbF, -1, at(b, -1)));
-      spMin = Math.min(spMin, best((phi) => xbF(phi) - xaF(phi), -1, at(span, -1)));
+      const e1 = best(xaF, -1, at(a, -1)), e2 = best(xaF, 1, at(a, 1)), e3 = best(xbF, 1, at(b, 1)), e4 = best(xbF, -1, at(b, -1));
+      for (const [e, end, arr, sign] of [[e1, 'A', a, -1], [e2, 'A', a, 1], [e3, 'B', b, 1], [e4, 'B', b, -1]]) if (sign * e.v > sign * arr[at(arr, sign)] + 1e-7) tips.push({ end, phi: e.phi, x: e.v });
+      aMin = Math.min(aMin, e1.v); aMax = Math.max(aMax, e2.v); bMax = Math.max(bMax, e3.v); bMin = Math.min(bMin, e4.v);
+      spMin = Math.min(spMin, best((phi) => xbF(phi) - xaF(phi), -1, at(span, -1)).v);
     }
     if (!invalid && spMin <= 0) { invalid = true; warns.push({ lvl: 'err', t: 'End cuts cross \u2014 short point \u2264 0. Lengthen the piece or ease the angles.' }); }
     const holes = this.roundHoles(sec, L, a, b, N, wrap, warns, invalid, aMin, bMax);
     // weight from the average length round the pipe: right for saddles as well as miters
     const wt = sec.wtFt * (a.reduce((t, v, i) => t + (b[i] - v), 0) / N / 12) * this.matRec().f;
-    const c = { kind: 'round', invalid, warns, L, A, B, a, b, N, wrap, holes, LP: bMax - aMin, SP: spMin, OAL: bMax - aMin, aMin, bMax, wt, sec };
+    const c = { kind: 'round', invalid, warns, L, A, B, a, b, N, wrap, holes, LP: bMax - aMin, SP: spMin, OAL: bMax - aMin, aMin, bMax, wt, sec, tips };
     c.paths = this.wrapPaths(c, [[0, '180\u00B0 BOTTOM \u00B7 SEAM'], [.25, '270\u00B0'], [.5, '0\u00B0 TOP'], [.75, '90\u00B0'], [1, '180\u00B0 BOTTOM']]);
     return c;
   }
@@ -706,7 +708,7 @@ class Component extends DCLogic {
         if (tooBig) { h.ok = false; warns.push({ lvl: 'err', t: '\u00D8' + this.fr16(dia) + ' hole is as wide as the pipe ' + (g.type === 'stub' ? 'ID' : 'OD') + ' \u2014 it cannot be cut. Use a smaller opening.' }); }
         else if (u - ru < 0 || u + ru > wrap) { h.ok = false; warns.push({ lvl: 'err', t: 'Hole at ' + deg + '\u00B0 crosses the program seam (180\u00B0 BOTTOM) \u2014 rotate the pattern.' }); }
         else {
-          if (!this.clearOfEnds(a, b, (k) => wrap * k / N, wrap * deg / 360, ru, x, rx, wrap, .1)) { h.ok = false; warns.push({ lvl: 'err', t: '\u00D8' + this.fr16(dia) + ' hole ' + this.fmtIn(x - hx0) + ' from End A, ' + deg + '\u00B0 runs off the end cut \u2014 skipped.' }); }
+          if (!this.clearOfEnds(a, b, (k) => wrap * k / N, wrap * deg / 360, ru, x, rx, wrap, .1, !!slotL)) { h.ok = false; warns.push({ lvl: 'err', t: '\u00D8' + this.fr16(dia) + ' hole ' + this.fmtIn(x - hx0) + ' from End A, ' + deg + '\u00B0 runs off the end cut \u2014 skipped.' }); }
         }
         holes.push(h);
       }
@@ -761,14 +763,27 @@ class Component extends DCLogic {
   /** Does the whole footprint of a hole clear both end cuts (with `margin` to spare)? The cut runs at a
    *  slant across the hole's width, so every station under the hole is checked, not only the one at its centre.
    *  sOf(k): distance round the part of station k; u: the hole's; ru / rx: half-size round and along. */
-  clearOfEnds(a, b, sOf, u, ru, x, rx, round, margin) {
+  clearOfEnds(a, b, sOf, u, ru, x, rx, round, margin, boxy) {
     const n = a.length, pad = round / n;
     for (let k = 0; k < n; k++) {
       let d = Math.abs(sOf(k) - u); d = Math.min(d, round - d);
       if (d > ru + pad) continue;
-      if (x - rx < a[k] + margin || x + rx > b[k] - margin) return false;
+      // a round hole is narrower toward its sides; a slot is taken at its full length all the way across
+      const hx = boxy ? rx : rx * Math.sqrt(Math.max(0, 1 - Math.pow(Math.min(1, d / ru), 2)));
+      if (x - hx < a[k] + margin || x + hx > b[k] - margin) return false;
     }
     return true;
+  }
+  /** The unwrapped outline of a round or square part as [x, round] points: the stations, plus the exact long
+   *  and short points where they fall between stations, so the drawing and the flat DXF reach the true ends. */
+  outlinePts(c) {
+    const { a, b, N, wrap } = c, sh = c.stns ? 0 : N / 2;
+    const ys = (i) => i >= N ? wrap : (c.stns ? c.stns[i].s : wrap * i / N);
+    const A = [], B = [];
+    for (let i = 0; i <= N; i++) { A.push([a[(i + sh) % N], ys(i)]); B.push([b[(i + sh) % N], ys(i)]); }
+    for (const t of (c.tips || [])) { const y = wrap * ((((t.phi + Math.PI) / (2 * Math.PI)) % 1 + 1) % 1); (t.end === 'A' ? A : B).push([t.x, y]); }
+    A.sort((p, q) => p[1] - q[1]); B.sort((p, q) => p[1] - q[1]);
+    return A.concat(B.reverse());
   }
   boxHoles(sec, L, Pm, warns, invalid, a, b, stns, aMinX, bMaxX) {
     const st = this.state, holes = [];
@@ -791,7 +806,7 @@ class Component extends DCLogic {
         if (u - ru < 0 || u + ru > Pm) { h.ok = false; warns.push({ lvl: 'err', t: 'Hole on ' + face + ' face crosses the program seam (bottom face CL) \u2014 nudge the offset off center.' }); }
         else if (Math.abs(off) + ru > half[face] - .05) { h.ok = false; warns.push({ lvl: 'err', t: 'Hole on ' + face + ' face at offset ' + this.fmtIn(off) + ' runs into the corner radius \u2014 skipped.' }); }
         else {
-          if (!this.clearOfEnds(a, b, (k) => stns[k].s, u, ru, x, rx, Pm, .1)) { h.ok = false; warns.push({ lvl: 'err', t: '\u00D8' + this.fr16(dia) + ' hole ' + this.fmtIn(x - hx0) + ' from End A (' + face + ' face) runs off the end cut \u2014 skipped.' }); }
+          if (!this.clearOfEnds(a, b, (k) => stns[k].s, u, ru, x, rx, Pm, .1, !!slotL)) { h.ok = false; warns.push({ lvl: 'err', t: '\u00D8' + this.fr16(dia) + ' hole ' + this.fmtIn(x - hx0) + ' from End A (' + face + ' face) runs off the end cut \u2014 skipped.' }); }
         }
         holes.push(h);
       }
@@ -808,10 +823,7 @@ class Component extends DCLogic {
     const sh = c.stns ? 0 : N / 2;
     const av = (i) => a[(i + sh) % N], bv = (i) => b[(i + sh) % N];
     const ys = (i) => i >= N ? wrap : (c.stns ? c.stns[i].s : wrap * i / N);
-    let d = '';
-    for (let i = 0; i <= N; i++) d += (i ? 'L' : 'M') + av(i).toFixed(3) + ' ' + ys(i).toFixed(3);
-    for (let i = N; i >= 0; i--) d += 'L' + bv(i).toFixed(3) + ' ' + ys(i).toFixed(3);
-    d += 'Z';
+    const d = 'M' + this.outlinePts(c).map(q => q[0].toFixed(3) + ' ' + q[1].toFixed(3)).join('L') + 'Z';
     let gridP = '';
     for (let x = 12; x < L; x += 12) gridP += 'M' + x + ' 0V' + wrap.toFixed(2);
     let refP = '';
@@ -2031,13 +2043,33 @@ class Component extends DCLogic {
   _solidFile(oc, m, kind) {
     const r = this.calc();
     if (this.blocked(r)) throw new Error('Fix the items marked in red first.');
-    const { K, shape } = m.buildSolid(oc, this, r);
-    const info = m.inspect(K, shape);
-    if (!info.valid || info.solids !== 1 || info.shells !== 1) throw new Error('The solid did not pass its own check (valid ' + info.valid + ', solids ' + info.solids + ').');
-    const want = r.LP || r.OAL || r.L, got = info.bbox[0][1] - info.bbox[0][0];
-    if (Math.abs(got - want) > .01) throw new Error('The solid came out ' + got.toFixed(3) + '″ long, expected ' + want.toFixed(3) + '″.');
     const name = this.fileBase();
-    return { name, laser: this.laserBase(), text: kind === 'igs' ? m.writeIges(K, shape, name) : m.writeStep(K, shape, name) };
+    const make = (second) => {
+      this._nurbsFirst = second;
+      try {
+        const { K, shape } = m.buildSolid(oc, this, r);
+        const info = m.inspect(K, shape);
+        if (!info.valid || info.solids !== 1 || info.shells !== 1) throw new Error('The solid did not pass its own check (valid ' + info.valid + ', solids ' + info.solids + ').');
+        const want = r.LP || r.OAL || r.L, got = info.bbox[0][1] - info.bbox[0][0];
+        if (Math.abs(got - want) > .005) throw new Error('The solid came out ' + got.toFixed(3) + '\u2033 long, expected ' + want.toFixed(3) + '\u2033.');
+        return { K, shape };
+      } finally { this._nurbsFirst = undefined; }
+    };
+    const write = (b) => kind === 'igs' ? m.writeIges(b.K, b.shape, name) : m.writeStep(b.K, b.shape, name);
+    const first = make(false);
+    let text;
+    try { text = write(first); }
+    catch (e) {
+      // The exact solid is good but its laser file failed the edge check (a kernel fault that shows on a few
+      // pipe parts with a saddle or a hole). The same part is built a second way; that solid is used only if
+      // it is proven to be the same piece as the exact one, and its file must pass the same check.
+      if (!(kind === 'igs' && r.kind === 'round' && /^IGES:/.test((e && e.message) || ''))) throw e;
+      let second;
+      try { second = make(true); } catch (e2) { throw e; }
+      if (!m.sameEdges || !m.sameEdges(first.K, first.shape, second.shape, .002) || !m.sameEdges(first.K, second.shape, first.shape, .002)) throw e;
+      try { text = write(second); } catch (e3) { throw e; }
+    }
+    return { name, laser: this.laserBase(), text };
   }
   /** True-solid export for TubesT: kind 'igs' or 'step'. The solid is checked by the engine before any file is handed over. */
   async dlSolid(kind) {
@@ -2420,10 +2452,7 @@ class Component extends DCLogic {
       const sh = c.stns ? 0 : N / 2;
       const av = (i) => a[(i + sh) % N], bv = (i) => b[(i + sh) % N];
       const ys = (i) => i >= N ? wrap : (c.stns ? c.stns[i].s : wrap * i / N);
-      const outline = [];
-      for (let i = 0; i <= N; i++) outline.push([av(i), ys(i)]);
-      for (let i = N; i >= 0; i--) outline.push([bv(i), ys(i)]);
-      poly(outline, 'CUT', true);
+      poly(this.outlinePts(c), 'CUT', true);
       for (const h of c.holes) {
         if (!h.ok) continue;
         if (h.slotL) poly(this.slotPts(h.x, h.u, h.slotL, h.dia, h.ax === 'x', 40, false), 'CUT', true);

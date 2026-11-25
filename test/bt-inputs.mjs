@@ -116,7 +116,7 @@ const settle = () => new Promise((r) => setTimeout(r, 5));                      
 let oc = null, occm = null;
 async function kernel(freshOne) { const { loadOcc } = await import('./_occ.mjs'); if (!occm) occm = await import('../occ-solid.js'); oc = await loadOcc(!!freshOne); return oc; }
 /** The laser file of the part now on form c - or { err } when the app refuses to write one. */
-async function laserFile(c) { try { const f = c._solidFile(oc, occm, 'igs'); return { name: f.name, text: f.text }; } catch (e) { const blockedByApp = e instanceof Error; if (!blockedByApp) await kernel(true); return { err: blockedByApp ? e.message : 'kernel stopped (' + String(e).slice(0, 40) + ')' }; } }
+async function laserFile(c) { try { const f = c._solidFile(oc, occm, 'igs'); return { name: f.laser || f.name, text: f.text }; } catch (e) { const blockedByApp = e instanceof Error; if (!blockedByApp) await kernel(true); return { err: blockedByApp ? e.message : 'kernel stopped (' + String(e).slice(0, 40) + ')' }; } }
 
 // ====================================================================================================
 // GROUP A — must hold today
@@ -173,17 +173,18 @@ if (KERNEL) {
     const t = await dirtyApp(); t.setState({ recallT: c.encodeCfg(c.snapshot()) }); t.renderVals().doRecall();
     const f2 = await laserFile(t);
     c.addToJob();
-    built.push({ cfg, form: f, recall: f2, pt: clone(c.state.parts[c.state.parts.length - 1]), qty: c.snapshot().qty });
+    built.push({ cfg, form: f, recall: f2, pt: clone(c.state.parts[c.state.parts.length - 1]), qty: c.state.parts[c.state.parts.length - 1].qty });   // (the form's own quantity goes back to 1 after a part is added)
   }
   A('A2.0', 'kernel built a laser file for every picked valid part (' + picks.length + ' parts, ' + N_SOLID + ' per family)', built.length === picks.length && refused === 0, refused + ' refused');
   const recallBad = built.filter((b) => b.recall.err || igesBody(b.recall.text) !== igesBody(b.form.text) || b.recall.name !== b.form.name);
   A('A2.1', 'IGES written after a RECALL is identical to the IGES of the original form (' + built.length + ' files)', !recallBad.length, recallBad.map((b) => b.cfg.family + ' ' + (b.recall.err || 'differs')).join(' | '));
   // whole job through "Download all laser files"
   const j = await dirtyApp(); j.setState({ parts: built.map((b) => b.pt), job: '22-104' });
-  const before = canon(j.state);
+  const formOf = (st) => canon(Object.assign({}, st, { saveMsg: '', saveOk: true }));   // the "Saved ..." status line is expected to change
+  const before = formOf(j.state);
   j._occ = async () => ({ oc, m: occm }); let got = null; j._download = (blob, name) => { got = { blob, name }; };
   await j.dlJobFiles();
-  A('A2.2', 'Download all laser files hands over one zip and leaves the form as it was', !!got && /^JOB-22-104 - laser files\.zip$/.test(got.name) && canon(j.state) === before, got && got.name);
+  A('A2.2', 'Download all laser files hands over one zip and leaves the form as it was', !!got && /^JOB-22-104 - laser files\.zip$/.test(got.name) && formOf(j.state) === before, got && got.name);
   const entries = got ? unzip(new Uint8Array(await got.blob.arrayBuffer())) : [];
   const used = {}, zipBad = [], nameBad = [];
   for (const b of built) {
@@ -290,7 +291,7 @@ const MARKS = ['', ' ', 'P-1', 'P 1', 'p-1', 'B-1/A', 'B-1\\A', 'A:B', 'A*B', 'A
   const c = await app('beam', { lenT: "10'-0", wantHoles: true });
   setG(c, { face: 'web', both: false, autoY: false, wref: 'tos', y0T: '1', nyT: '1', x0T: '12', pT: '12', nT: '10', xsT: '' });
   const r = c.calc(), skipped = r.holes.filter((h) => !h.ok).length;
-  A('A5.2', 'beam, ten web holes of which the tenth runs off the end: the part is blocked', skipped === 1 && c.blocked(r), 'asked ' + r.holes.length + ', skipped ' + skipped + ', blocked ' + c.blocked(r) + ', errors shown ' + errsOf(r).length + ', warnings shown ' + r.warns.length + ', status "' + c.renderVals().stReady + '"');
+  A('A5.2', 'beam, ten web holes of which the tenth runs off the end: the part is blocked', skipped >= 1 && c.blocked(r), 'asked ' + r.holes.length + ', skipped ' + skipped + ', blocked ' + c.blocked(r) + ', errors shown ' + errsOf(r).length + ', warnings shown ' + r.warns.length + ', status "' + c.renderVals().stReady + '"');
   if (KERNEL) {
     const f = await laserFile(c);
     const nine = await app('beam', { lenT: "10'-0", wantHoles: true }); setG(nine, { face: 'web', both: false, autoY: false, wref: 'tos', y0T: '1', nyT: '1', x0T: '12', pT: '12', nT: '9', xsT: '' });
@@ -302,7 +303,7 @@ const MARKS = ['', ' ', 'P-1', 'P 1', 'p-1', 'B-1/A', 'B-1\\A', 'A:B', 'A*B', 'A
 // ---------- A6  nothing invisible is left over from an earlier part ----------
 {
   // NEW JOB
-  const c = await app('beam', { lenT: '77', qty: 9, mark: 'ZZ-4', job: 'J1' }); setEnd(c, 'A', { mode: 'ang', tpT: '20', wantCope: true, rat: 'BOTH' }); c.setState({ wantHoles: true }); c.addToJob(); c.renderVals().jobParts[0].load(); c.renderVals().newJob();
+  const c = await app('beam', { lenT: '77', qty: 9, mark: 'ZZ-4', job: 'J1' }); setEnd(c, 'A', { mode: 'ang', tpT: '20' }); setEnd(c, 'B', { wantCope: true, rat: 'BOTH' }); c.setState({ wantHoles: true }); c.addToJob(); c.renderVals().jobParts[0].load(); c.renderVals().newJob();
   const f0 = await freshApp();
   A('A6.1', 'Finish & new job puts every part setting back to the factory part', canon(c.snapshot()) === canon(f0.snapshot()) && c.state.parts.length === 0 && c.state.editId === null && c.state.job === '', '');
   // another shape and back

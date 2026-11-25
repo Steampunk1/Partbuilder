@@ -172,7 +172,7 @@ function expX(M, y, z, withHoles) {
     }
     if (zone === 'web') for (const [on, top] of [[(E.rat === 'TOP' || E.rat === 'BOTH') && !E.ct, true], [(E.rat === 'BOT' || E.rat === 'BOTH') && !E.cb, false]]) {
       if (!on) continue;
-      const yc = (top ? 1 : -1) * (hw - E.rr), xc = isA ? -yc * A.tanv : L + yc * B.tanv, dy = y - yc;
+      const yc = (top ? 1 : -1) * (hw - E.rr - 0.005), xc = isA ? -yc * A.tanv : L + yc * B.tanv, dy = y - yc;   // the access hole stops 0.005 under the flange (Component.RAT_GAP)
       if (Math.abs(dy) >= E.rr) continue;
       const sq = Math.sqrt(E.rr ** 2 - dy * dy), arc = { cx: xc, cy: yc, r: E.rr }, end = isA ? 'A' : 'B';
       discs.push([{ x: xc - sq, kind: 'rat', arc, end }, { x: xc + sq, kind: 'rat', arc, end }]);
