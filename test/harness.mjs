@@ -660,7 +660,7 @@ function meshChecks(m) {
   const fields = []; let cur = '', inq = false;
   for (let i = 0; i < row.length; i++) { const ch = row[i]; if (inq) { if (ch === '"' && row[i + 1] === '"') { cur += '"'; i++; } else if (ch === '"') inq = false; else cur += ch; } else if (ch === '"') inq = true; else if (ch === ',') { fields.push(cur); cur = ''; } else cur += ch; }
   fields.push(cur);
-  ok(fields.length === 8, 'job CSV row has 8 fields', fields.length);
+  ok(fields.length === 12, 'job CSV row has 12 fields (the first 8 as before, then each end, hole count and the laser file name)', fields.length);
   ok(fields[4] === "9'-0 5/16\"", 'job CSV cut_len is the overall length', fields[4]);
 }
 

@@ -3058,7 +3058,7 @@ class Component extends DCLogic {
       rvTitle: rv ? (rv.kind === 'job' ? 'Check the job before saving' : 'Check this part before saving') : '',
       rv: rv && rv.one ? rv.one : { mark: '', qty: '', stock: '', len: '', sp: '', endA: '', endB: '', holes: '', wt: '', file: '' },
       rvHasSp: !!(rv && rv.one && rv.one.sp),
-      rvRows: rv ? rv.rows.map(r => ({ mark: r.mark, qty: '\u00D7' + r.qty, txt: r.bad ? 'LEFT OUT \u2014 ' + (r.why || 'has an error') : r.stock + ' \u00B7 ' + r.len, s: { color: r.bad ? '#B3261E' : '#14181D', font: (r.bad ? '700' : '400') + ' 12.5px/1.45 Barlow, sans-serif' } })) : [],
+      rvRows: rv ? rv.rows.map(r => ({ mark: r.mark, qty: '\u00D7' + r.qty, txt: r.bad ? 'LEFT OUT \u2014 ' + (r.why || 'has an error') : r.stock + ' \u00B7 ' + r.len + ((r.endA !== 'SQUARE' || r.endB !== 'SQUARE') ? ' \u00B7 A: ' + r.endA + ' \u00B7 B: ' + r.endB : '') + (r.holes !== 'None' ? ' \u00B7 holes: ' + r.holes : ''), s: { color: r.bad ? '#B3261E' : '#14181D', font: (r.bad ? '700' : '400') + ' 12.5px/1.45 Barlow, sans-serif' } })) : [],
       rvDest: rv ? rv.dest : '', rvNoJob: !!rv && rv.noJob,
       rvBevel: !!rv && rv.bevel,
       rvHasCautions: !!rv && rv.cautions.length > 0, rvCautions: rv ? rv.cautions.map(t => ({ t })) : [],
@@ -3289,8 +3289,21 @@ class Component extends DCLogic {
     if (!st.parts.length) return null;
     // ASCII only (same rule as DXF/CSV); inch marks inside quoted fields are doubled.
     const q = (v) => '"' + this.ascii(String(v)).replace(/"/g, '""') + '"';
-    let s = 'code,mark,qty,description,cut_len,oal_in,wt_ea_lb,wt_total_lb\n';
-    for (const p of st.parts) s += [q(p.code), q(p.mark), p.qty, q(p.desc), q(p.lenT2), p.oal.toFixed(3), p.wt.toFixed(1), (p.wt * p.qty).toFixed(1)].join(',') + '\n';
+    // The last four columns tie each line to its laser file: what each end is,
+    // the holes, and the file name the operator opens.
+    let s = 'code,mark,qty,description,cut_len,oal_in,wt_ea_lb,wt_total_lb,end_a,end_b,holes,laser_file\n';
+    const used = {};
+    for (const p of st.parts) {
+      let x = ['', '', '', ''];
+      try {
+        x = this._withPart(p, () => {
+          const c = this.calc();
+          if (this.blocked(c)) return ['', '', '', 'NOT SAVED - fix the part'];
+          return [this.endSpecText(c.A || {}, c.sec), this.endSpecText(c.B || {}, c.sec), String(c.holes.filter(h => h.ok).length), this.jobFileName(p, this.laserBase(), used)];
+        });
+      } catch (e) { x = ['', '', '', 'NOT SAVED - fix the part']; }
+      s += [q(p.code), q(p.mark), p.qty, q(p.desc), q(p.lenT2), p.oal.toFixed(3), p.wt.toFixed(1), (p.wt * p.qty).toFixed(1), q(x[0]), q(x[1]), q(x[2]), q(x[3])].join(',') + '\n';
+    }
     return s;
   }
   _openTicket(html, fallbackName) {
