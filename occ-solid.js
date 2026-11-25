@@ -6,6 +6,12 @@
 // triangle mesh, which TubesT does not recognise. Everything here is driven by
 // the same calc() result that draws the flat DXF, so the two cannot drift.
 //
+// Weld bevels: on a square-cut end of round or square / rect stock the bevel is
+// part of the solid (a true cone / sloped planes, land left at the end), so a
+// bevel-capable TubesT cuts it from the model. NOT YET PROVEN ON THE MACHINE:
+// a TubesT that ignores the bevel and follows the outer edge would cut the
+// piece short by (wall - land) x tan(angle). See Component.BEVEL_IN_FILE.
+//
 // Axes: X = along the part (End A at low X). Pipe: +Y = 0 deg (top),
 // +Z = 90 deg. Runs in the browser and in Node (test/).
 
@@ -115,7 +121,11 @@ export function kit(oc) {
   /** Distance-free test: is p on the surface of solid s within tol? (IN at p+tol side and OUT at the other is not needed - the classifier reports ON.) */
   const onSurface = (s, p, tol) => { const c = mk('BRepClass3d_SolidClassifier', s, pnt(...p), tol); const st = c.State(); return st === oc.TopAbs_State.TopAbs_ON || (st && st.value === oc.TopAbs_State.TopAbs_ON.value); };
   const scale = (s, f) => { const t = new oc.gp_Trsf_1(); t.SetScale(pnt(0, 0, 0), f); return done(mk('BRepBuilderAPI_Transform', s, t, true)); };
-  return { edgePoints, onSurface, sectionFace, unify, holeTool, oc, mk, call, stat, pnt, dir, vec, ax2, done, cut, common, fuse, polyWire, faceOfWire, polyFace, prism, cyl, slab, bspline, edgeOfCurve, ellipseFace, volume, bbox, count, faceTypes, valid, inside, scale };
+  /** Solid of revolution: a flat face turned a full turn about the part's own axis (X). */
+  const revolve = (face) => { const ax = mk('gp_Ax1', pnt(0, 0, 0), dir(1, 0, 0)); let b; try { b = mk('BRepPrimAPI_MakeRevol', face, ax, false); } catch (e) { b = mk('BRepPrimAPI_MakeRevol', face, ax, 2 * Math.PI, false); } return done(b); };
+  /** Solid through a row of flat section faces, straight lines between matching points of neighbouring sections. */
+  const loft = (faces) => { const b = mk('BRepOffsetAPI_ThruSections', true, true, 1e-6); for (const f of faces) b.AddWire(stat('BRepTools', 'OuterWire', f)); b.CheckCompatibility(false); return done(b); };
+  return { revolve, loft, edgePoints, onSurface, sectionFace, unify, holeTool, oc, mk, call, stat, pnt, dir, vec, ax2, done, cut, common, fuse, polyWire, faceOfWire, polyFace, prism, cyl, slab, bspline, edgeOfCurve, ellipseFace, volume, bbox, count, faceTypes, valid, inside, scale };
 }
 
 // ---------------------------------------------------------------- PIPE
@@ -129,7 +139,19 @@ function pipeSolid(K, comp, r) {
   // written. That second solid is used only after it has been checked against this one (sameEdges below).
   const second = !!(comp && comp._nurbsFirst === true);
   const toN = (sh) => second ? K.done(K.mk('BRepBuilderAPI_NurbsConvert', sh, true)) : sh;
-  let s = toN(K.cut(K.cyl([x0, 0, 0], [1, 0, 0], ro, x1 - x0), K.cyl([x0 - 1, 0, 0], [1, 0, 0], ri, x1 - x0 + 2)));
+  // A weld bevel on a square end is part of the solid: the wall's own outline (outside edge cut back, land left
+  // at the end) is turned about the pipe axis, so the bevel is a true cone and the long point is still the end.
+  // The outline is drawn on the 180 deg (bottom) side - the program seam, where no hole is ever allowed.
+  const bevA = sq(r.A) && r.A && r.A.bvIn ? r.A : null, bevB = sq(r.B) && r.B && r.B.bvIn ? r.B : null;
+  let blank;
+  if (bevA || bevB) {
+    const P = [[x0, ri]];
+    if (bevA) { if (bevA.land > 1e-9) P.push([0, ri + bevA.land]); P.push([bevA.bvC, ro]); } else P.push([x0, ro]);
+    if (bevB) { P.push([L - bevB.bvC, ro]); if (bevB.land > 1e-9) P.push([L, ri + bevB.land]); } else P.push([x1, ro]);
+    P.push([x1, ri]);
+    blank = K.revolve(K.polyFace(P.map(q => [q[0], -q[1], 0])));
+  } else blank = K.cut(K.cyl([x0, 0, 0], [1, 0, 0], ro, x1 - x0), K.cyl([x0 - 1, 0, 0], [1, 0, 0], ri, x1 - x0 + 2));
+  let s = toN(blank);
   const { fA, fB } = comp.roundCutFns(r.sec, L, r.A, r.B, []);
   const endCut = (E, isA) => {
     if (sq(E)) return;
@@ -182,8 +204,23 @@ function boxSolid(K, comp, r) {
   const { H, B, t, rc } = r.sec, R = reach(r, Math.max(H, B)), x0 = R.sq ? 0 : R.x0, len = (R.sq ? r.L : R.x1) - x0;
   const rect = (h, b) => [[-h / 2, -b / 2], [-h / 2, b / 2], [h / 2, b / 2], [h / 2, -b / 2]];
   const rounded = (h, b, rad, x) => K.sectionFace(x, rect(h, b), rect(h, b).map(q => [q[0], q[1], rad]));
-  let s = K.cut(K.prism(rounded(H, B, rc, x0), [len, 0, 0]), K.prism(rounded(H - 2 * t, B - 2 * t, Math.max(0, rc - t), x0 - 1), [len + 2, 0, 0]));
-  s = planeEnds(K, s, r, 4 * Math.max(H, B) + 40, !R.sq);
+  const flat = (E) => !E || !(E.tanv || E.tanp);
+  const bevA = flat(r.A) && r.A && r.A.bvIn ? r.A : null, bevB = flat(r.B) && r.B && r.B.bvIn ? r.B : null;
+  let s;
+  if (bevA || bevB) {
+    // A weld bevel on a square end is part of the solid. The outside is a row of sections joined by straight
+    // lines: at a bevelled end the last section is the outside shrunk by (wall - land), so the flats come out
+    // as true sloped planes and the corners as true cones, and the land is left at the end (the long point).
+    const xa = flat(r.A) ? 0 : R.x0, xb = flat(r.B) ? r.L : R.x1, secs = [];
+    const land = (E, x) => rounded(H - 2 * E.bvW, B - 2 * E.bvW, rc - E.bvW, x);
+    if (bevA) secs.push(land(bevA, 0), rounded(H, B, rc, bevA.bvC)); else secs.push(rounded(H, B, rc, xa));
+    if (bevB) secs.push(rounded(H, B, rc, r.L - bevB.bvC), land(bevB, r.L)); else secs.push(rounded(H, B, rc, xb));
+    s = K.cut(K.loft(secs), K.prism(rounded(H - 2 * t, B - 2 * t, Math.max(0, rc - t), xa - 1), [xb - xa + 2, 0, 0]));
+    s = planeEnds(K, s, r, 4 * Math.max(H, B) + 40, false);          // only an angled end is still over-long
+  } else {
+    s = K.cut(K.prism(rounded(H, B, rc, x0), [len, 0, 0]), K.prism(rounded(H - 2 * t, B - 2 * t, Math.max(0, rc - t), x0 - 1), [len + 2, 0, 0]));
+    s = planeEnds(K, s, r, 4 * Math.max(H, B) + 40, !R.sq);
+  }
   const st = r.stns, Pm = (() => { const l = st[st.length - 1]; return l.s + Math.hypot(st[0].y - l.y, st[0].z - l.z); })();
   const at = (u) => { // point + outward normal on the outside perimeter at arc length u
     for (let i = 0; i < st.length; i++) { const a = st[i], b = st[(i + 1) % st.length], sb = i + 1 < st.length ? b.s : Pm; if (u >= a.s - 1e-9 && u <= sb + 1e-9) { const k = sb > a.s ? (u - a.s) / (sb - a.s) : 0; return { y: a.y + (b.y - a.y) * k, z: a.z + (b.z - a.z) * k, ny: a.ny, nz: a.nz }; } }

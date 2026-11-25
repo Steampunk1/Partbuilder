@@ -103,12 +103,32 @@ const grp = (c, p) => ({ wantHoles: true, groups: [{ ...c.state.groups[0], ...p 
     // an older part saved at 16 in still shows its size in the list, with the red item
     const old16 = (await freshApp({ lenT: '48', pnps: '16' })).renderVals();
     ok(old16.pipeNpsOpts.includes('16') && old16.hasErr, 'a saved 16 in part still shows its size, flagged red');
-    // other shapes: over 14 in corner to corner is a caution to check, not a stop
-    const b = await freshApp(); b.pickFam('beam')(); b.setState({ lenT: '60', bser: 'W', bsize: 'W16x40' });
-    const cb = b.calc();
-    ok(!b.blocked(cb) && cb.warns.some((w) => w.lvl === 'warn' && /corner to corner/.test(w.t)), 'W16x40 (17 in corner to corner) gets a "check that it fits" caution, not a stop', cb.warns.map((w) => w.t).join(' | '));
-    const h = await freshApp(); h.pickFam('hss')(); h.setState({ lenT: '60', hsize: '4x4', hwallT: '1/4' });
-    ok(!h.calc().warns.some((w) => /corner to corner/.test(w.t)), '4x4 tube gets no size caution');
+    // every other shape has to turn inside the same 14 in circle: corner to corner over 14 in is a stop
+    const stop = async (fam, patch, label) => { const q = await freshApp(); q.pickFam(fam)(); q.setState(Object.assign({ lenT: '60' }, patch)); const e = errs(q); ok(q.blocked(q.calc()) && e.some((t) => /corner to corner \u2014 the laser takes 14\u2033 at most/.test(t)), label + ' is refused: over 14 in corner to corner', e.join(' | ')); };
+    const fits = async (fam, patch, label) => { const q = await freshApp(); q.pickFam(fam)(); q.setState(Object.assign({ lenT: '60' }, patch)); ok(!q.blocked(q.calc()) && !q.calc().warns.some((w) => /corner to corner/.test(w.t)), label + ' fits, no size item', errs(q).join(' | ')); };
+    await stop('beam', { bser: 'W', bsize: 'W16x40' }, 'W16x40 (17.4 in)');
+    await stop('beam', { bser: 'W', bsize: 'W12x35' }, 'W12x35 (14.12 in)');
+    await stop('beam', { bser: 'W', bsize: 'W14x22' }, 'W14x22 (14.6 in)');
+    await fits('beam', { bser: 'W', bsize: 'W12x30' }, 'W12x30 (13.96 in)');
+    await fits('beam', { bser: 'W', bsize: 'W12x26' }, 'W12x26 (13.84 in)');
+    await stop('chan', { cser: 'C', csize: 'C15x33.9' }, 'C15x33.9 (15.4 in)');
+    await fits('chan', { cser: 'C', csize: 'C12x20.7' }, 'C12x20.7 (12.4 in)');
+    await stop('hss', { hsize: '12x12', hwallT: '1/2' }, '12x12 tube');
+    await stop('hss', { hsize: '12x8', hwallT: '1/4' }, '12x8x1/4 tube (14.04 in with its corner radius)');
+    await fits('hss', { hsize: '10x10', hwallT: '1/4' }, '10x10x1/4 tube (13.7 in with its corner radius)');
+    await fits('hss', { hsize: '4x4', hwallT: '1/4' }, '4x4 tube');
+    await fits('angl', { asize: '8x8', athkT: '1/2' }, '8x8 angle (11.3 in)');
+    // the size lists only offer what fits; a size already on the part stays listed (flagged red)
+    { const q = await freshApp(); q.pickFam('beam')(); const v2 = q.renderVals();
+      ok(v2.beamSizeOpts.includes('W12x30') && v2.beamSizeOpts.includes('W8x31') && !v2.beamSizeOpts.includes('W12x35') && !v2.beamSizeOpts.some((k) => /^W(14|16|18|21|24)x/.test(k)), 'beam size list stops at what turns in 14 in', v2.beamSizeOpts.slice(-6).join(','));
+      q.setState({ bsize: 'W16x40' }); ok(q.renderVals().beamSizeOpts.includes('W16x40') && q.renderVals().hasErr, 'a saved W16x40 still shows its size, flagged red');
+      q.renderVals().onBser({ target: { value: 'S' } }); ok(q.state.bser === 'S' && !q.blocked(q.calc()), 'changing beam type lands on a size that fits', q.state.bsize);
+      const k = await freshApp(); k.pickFam('chan')(); const v3 = k.renderVals(); ok(v3.chanSizeOpts.includes('C12x20.7') && !v3.chanSizeOpts.some((x) => /^C15x/.test(x)), 'channel size list stops at C12');
+      const t = await freshApp(); t.pickFam('hss')(); const v4 = t.renderVals(); ok(v4.hssSizeOpts.includes('10x10') && v4.hssSizeOpts.includes('12x8') && !v4.hssSizeOpts.includes('12x12') && !v4.hssSizeOpts.includes('16x12') && !v4.hssSizeOpts.includes('14x10'), 'tube size list: 10x10 and 12x8 stay, 12x12 and up are gone', v4.hssSizeOpts.slice(-6).join(',')); }
+    // stock: nothing longer than the bed
+    { const q = await freshApp({ lenT: '120', mark: 'S-1', job: 'J1' }); q.addToJob();
+      const keys = q.renderVals().nests.map((n2) => n2.key); q.setState({ stickSel: Object.fromEntries(keys.map((k2) => [k2, '576'])) });
+      const nests = q.renderVals().nests; ok(keys.length === 1 && nests.every((n2) => n2.stick === '504'), 'a job saved with 48 ft stock is nested on 42 ft, the longest the laser takes', JSON.stringify(nests.map((n2) => n2.stick))); }
   } finally { Component.LASER = { maxOD: Infinity, maxLen: Infinity }; }
 }
 
@@ -149,7 +169,7 @@ const grp = (c, p) => ({ wantHoles: true, groups: [{ ...c.state.groups[0], ...p 
   const c = await freshApp({ lenT: '48', mark: 'P-7', qty: 3 });
   ok(c.laserName(3) === 'P-7_6-SCH-40_A106B_48in - QTY 3.igs', 'name: mark, section, grade, length, quantity', c.laserName(3));
   c.setState(end(c, 'A', { wantBevel: true, bvT: '37.5' })); c.setState(end(c, 'B', { wantBevel: true, bvT: '30' }));
-  ok(c.laserName(3) === 'P-7_6-SCH-40_A106B_48in_BEVEL-A37.5-B30 - QTY 3.igs', 'name carries the weld bevel of each end', c.laserName(3));
+  ok(c.laserName(3) === 'P-7_6-SCH-40_A106B_48in_BEVELED-A37.5-B30 - QTY 3.igs', 'name carries the weld bevel of each end (BEVELED: it is drawn in the file)', c.laserName(3));
   const d = await freshApp({ lenT: '48.03', mark: ' my part #1/2 ', mat: '304L' });
   ok(d.laserName(1) === 'my-part-1-2_6-SCH-40_304L_48.03in - QTY 1.igs', 'name: true length to the thousandth, no characters Windows or OneDrive refuse', d.laserName(1));
   for (const fam of ['pipe', 'tube', 'hss', 'beam', 'chan', 'angl']) {

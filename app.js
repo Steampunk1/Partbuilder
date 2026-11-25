@@ -253,6 +253,12 @@ class Component extends DCLogic {
   }
   matRec() { const M = this.D ? this.D.MATERIALS : [{ id: 'A106B', label: 'A106-B PIPE', f: 1, cat: 'carbon' }]; return M.find(m => m.id === this.state.mat) || M[0]; }
   famKind() { const f = this.state.family; return (f === 'pipe' || f === 'tube') ? 'round' : f === 'hss' ? 'box' : f === 'angl' ? 'angl' : 'plate'; }
+  /** Does this square / rect tube size turn inside the laser's circle in at least one wall that is made? */
+  hssFits(size) {
+    const p = String(size).split('x'), H = this.frIn(p[0]), B = p.length > 1 ? this.frIn(p[1]) : H, D = this.D;
+    if (!(H > 0) || !(B > 0) || !D) return true;
+    return D.HSS_WALLS.some(w => { const t = this.parseIn(w); if (!(t > 0) || t > Math.min(B, H) / 2.5 + 1e-9) return false; const rc = Math.min(2 * t, Math.min(B, H) / 3); return Component.envelope({ kind: 'box', H, B, rc }) <= Component.LASER.maxOD + 1e-6; });
+  }
   famLabel() { return { pipe: 'PIPE', tube: 'ROUND TUBE', hss: 'SQ/RECT TUBE', beam: 'BEAM', chan: 'CHANNEL', angl: 'ANGLE' }[this.state.family]; }
 
   sec() {
@@ -300,6 +306,13 @@ class Component extends DCLogic {
   endParsed(e, sec) {
     const kind = sec.kind;
     const E = { mode: e.mode, bv: e.wantBevel ? Math.max(0, Math.min(Component.BEVEL_MAX, parseFloat(e.bvT) || 0)) : 0, land: this.parseIn(e.landT) || 0, open: e.open, app: e.app };
+    // bvIn: this bevel is drawn into the laser file. bvW: how much of the wall it takes (wall - land).
+    // bvC: how far the outside edge sits back from the end. The land is at the end, so the long point does not move.
+    const plan = (square, wall) => {
+      E.bvIn = !!(Component.BEVEL_IN_FILE && E.bv > 0 && square && wall > 0 && E.land >= 0 && E.land < wall - 1e-9);
+      E.bvW = E.bvIn ? wall - E.land : 0; E.bvC = E.bvIn ? E.bvW * Math.tan(E.bv * Math.PI / 180) : 0;
+      return E;
+    };
     if (kind === 'round') {
       if (e.mode === 'miter') {
         E.ma = Math.max(-75, Math.min(75, parseFloat(e.maT) || 0));
@@ -318,7 +331,7 @@ class Component extends DCLogic {
         const alpha = Math.max(20, Math.min(90, parseFloat(e.sdAT) || 90)) * Math.PI / 180;
         E.sd = { hod, hw, hid: hod - 2 * hw, alpha, roll: (parseFloat(e.sdRT) || 0) * Math.PI / 180, seat: e.sdSeat, Rs: e.sdSeat === 'on' ? hod / 2 : (hod - 2 * hw) / 2, N: e.sdN, S: e.sdS, custom, badOd };
       }
-      return E;
+      return plan(e.mode !== 'miter' && e.mode !== 'saddle', sec.ro - sec.ri);
     }
     const ang = e.mode === 'ang';
     E.tp = ang ? Math.max(-75, Math.min(75, parseFloat(e.tpT) || 0)) : 0;
@@ -330,7 +343,7 @@ class Component extends DCLogic {
       E.cb = cope && e.cb ? { c: this.parseIn(e.bcT) || 4, dc: this.parseIn(e.bdT) || 1.5, r: this.parseIn(e.brT) || .5 } : null;
       E.rat = cope ? e.rat : 'NONE'; E.rr = this.parseIn(e.rrT) || .75;
     }
-    return E;
+    return plan(kind === 'box' && !E.tanp && !E.tanv, sec.t);
   }
 
   /** One end in plain shop words, for the check card: "fish-mouth to sit on 6″ SCH 40 pipe at 90°". */
@@ -355,7 +368,9 @@ class Component extends DCLogic {
       if (E.cb) out.push('bottom flange coped ' + this.fmtIn(E.cb.c) + ' long × ' + this.fmtIn(E.cb.dc) + ' deep');
       if (E.rat && E.rat !== 'NONE') out.push('weld access hole ' + ({ TOP: 'at the top', BOT: 'at the bottom', BOTH: 'top and bottom' }[E.rat] || ''));
     }
-    if (E.bv) out.push('weld bevel ' + E.bv + '° (set by the operator)');
+    if (E.bv) out.push(E.bvIn
+      ? 'weld bevel ' + E.bv + '° with ' + (E.land > 0 ? this.fr16(E.land) + '″ land' : 'no land') + ', cut by the laser (outside edge ' + E.bvC.toFixed(3) + '″ back from the end)'
+      : 'weld bevel ' + E.bv + '° — NOT in the laser file, the operator adds it');
     return out.join(', ');
   }
   endSpecText(E, sec) {
@@ -370,13 +385,27 @@ class Component extends DCLogic {
       if (E.cb) s.push('COPE B ' + this.fmtIn(E.cb.c) + '\u00D7' + this.fmtIn(E.cb.dc) + ' R' + this.fr16(E.cb.r));
       if (E.rat && E.rat !== 'NONE') s.push('RAT ' + E.rat + ' R' + this.fr16(E.rr));
     }
-    if (E.bv) s.push('BVL ' + E.bv + '\u00B0\u00D7' + this.fr16(E.land) + ' LAND' + (sec.kind === 'plate' ? ', OPEN ' + E.open + ' (' + E.app + ')' : ' \u2014 NOTE'));
+    if (E.bv) s.push('BVL ' + E.bv + '\u00B0\u00D7' + this.fr16(E.land) + ' LAND' + (sec.kind === 'plate' ? ', OPEN ' + E.open + ' (' + E.app + ')' : '') + (E.bvIn ? ' \u2014 IN LASER FILE' : ' \u2014 OPERATOR ADDS'));
     return s.join(' \u00B7 ');
   }
 
   // ---------- typed-input check ----------
   /** The shop laser's bevel head tilts this far and no further. */
   static BEVEL_MAX = 45;
+  /** A weld bevel on a square-cut end of pipe, round tube or square / rectangular tube is drawn into the laser
+   *  file itself: the outside edge is cut back, the land stays at the end, and TubesT cuts it from the model.
+   *  Every other bevel (angled or fish-mouth ends, beam, channel, angle) is not in the file - it is named in the
+   *  file name for the operator to add. Set this false and every bevel is name-only. */
+  static BEVEL_IN_FILE = true;
+  /** The circle a section turns in, in inches: OD for round, corner to corner for everything else. */
+  static envelope(sec) {
+    if (!sec) return 0;
+    if (sec.kind === 'round') return sec.od || 0;
+    if (sec.kind === 'box') return 2 * (Math.hypot(sec.H / 2 - sec.rc, sec.B / 2 - sec.rc) + sec.rc);
+    if (sec.kind === 'plate') return Math.hypot(sec.d, sec.bf);
+    if (sec.kind === 'angl') return Math.hypot(sec.a, sec.b);
+    return 0;
+  }
   /** What the shop laser takes: largest round it swings (inches OD) and longest piece (inches). */
   static LASER = { maxOD: 14, maxLen: 42 * 12 };
   /** A weld-access hole stops this far short of the flange underside: a round cut that only touches a flat
@@ -487,7 +516,17 @@ class Component extends DCLogic {
         else if (bv <= 0) out.push(nm + ': bevel angle must be more than 0°.');
         else if (bv > Component.BEVEL_MAX) out.push(nm + ': bevel ' + bv + '° — the laser bevels ' + Component.BEVEL_MAX + '° maximum.');
         if (land == null || land < 0) cant(nm + ' bevel land', e.landT);
+        else if (bv != null && bv > 0 && bv <= Component.BEVEL_MAX) {
+          const wall = sec.kind === 'round' ? sec.ro - sec.ri : (sec.kind === 'box' || sec.kind === 'angl') ? sec.t : sec.kind === 'plate' ? (e.app === 'WEB' ? sec.tw : e.app === 'FLANGES' ? sec.tf : Math.min(sec.tf, sec.tw)) : 0;
+          if (wall > 0 && land >= wall - 1e-9) out.push(nm + ': bevel land ' + txt(e.landT) + '\u2033 is as thick as the ' + (plate ? 'steel' : 'wall') + ' (' + (+wall.toFixed(3)) + '\u2033) \u2014 there is no bevel left.');
+          const E = c && c[id];
+          if (E && E.bvIn && sec.kind === 'box' && sec.rc - E.bvW < .02) out.push(nm + ': this wall is too heavy for the tube\u2019s corner radius \u2014 the bevel can\u2019t be drawn. Use a bigger land or take the bevel off.');
+        }
       }
+    }
+    if (c && !c.invalid && c.L > 0) {
+      const back = ['A', 'B'].reduce((t, k) => t + (c[k] && c[k].bvIn ? c[k].bvC : 0), 0);
+      if (back > 0 && c.L - back < .25) out.push('The piece is too short for its weld bevel' + (c.A && c.A.bvIn && c.B && c.B.bvIn ? 's' : '') + ' \u2014 the outside edges would meet. Lengthen it or ease the bevel.');
     }
 
     // --- the holes
@@ -579,9 +618,9 @@ class Component extends DCLogic {
     { const d2 = (!c.invalid && c.aMin != null && c.bMax != null) ? this.datum(c.aMin, c.bMax, c.L) : [0, c.L || 0]; c.x0 = d2[0]; c.x1 = d2[1]; }
     if (this.D) for (const t of this.inputErrs(c)) (c.warns = c.warns || []).push({ lvl: 'err', t });
     if (this.D && !c.invalid) {
-      const s2 = c.sec || {}, lim = Component.LASER.maxOD;
-      const env = s2.kind === 'box' ? 2 * (Math.hypot(s2.H / 2 - s2.rc, s2.B / 2 - s2.rc) + s2.rc) : s2.kind === 'plate' ? Math.hypot(s2.d, s2.bf) : s2.kind === 'angl' ? Math.hypot(s2.a, s2.b) : 0;
-      if (env > lim + 1e-6) (c.warns = c.warns || []).push({ lvl: 'warn', t: s2.label + ' is ' + env.toFixed(2) + '\u2033 corner to corner \u2014 more than the laser\u2019s ' + lim + '\u2033 round capacity. Check that it fits the machine before cutting.' });
+      // the 14 in limit is the circle the piece turns in: square / rect tube, beam, channel and angle are measured corner to corner
+      const s2 = c.sec || {}, lim = Component.LASER.maxOD, env = s2.kind === 'round' ? 0 : Component.envelope(s2);
+      if (env > lim + 1e-6) (c.warns = c.warns || []).push({ lvl: 'err', t: s2.label + ' is ' + env.toFixed(2) + '\u2033 corner to corner \u2014 the laser takes ' + lim + '\u2033 at most.' });
     }
     // Red items first and never crowded out by cautions: one dropped red item
     // would let a part with a known fault through to the laser.
@@ -661,7 +700,9 @@ class Component extends DCLogic {
       spMin = Math.min(spMin, best((phi) => xbF(phi) - xaF(phi), -1, at(span, -1)).v);
     }
     if (!invalid && spMin <= 0) { invalid = true; warns.push({ lvl: 'err', t: 'End cuts cross \u2014 short point \u2264 0. Lengthen the piece or ease the angles.' }); }
-    const holes = this.roundHoles(sec, L, a, b, N, wrap, warns, invalid, aMin, bMax);
+    // a bevel drawn into the file takes the outside of the wall for bvC back from the end: holes keep clear of it
+    const aH = A.bvIn ? a.map(v => v + A.bvC) : a, bH = B.bvIn ? b.map(v => v - B.bvC) : b;
+    const holes = this.roundHoles(sec, L, aH, bH, N, wrap, warns, invalid, aMin, bMax);
     // weight from the average length round the pipe: right for saddles as well as miters
     const wt = sec.wtFt * (a.reduce((t, v, i) => t + (b[i] - v), 0) / N / 12) * this.matRec().f;
     const c = { kind: 'round', invalid, warns, L, A, B, a, b, N, wrap, holes, LP: bMax - aMin, SP: spMin, OAL: bMax - aMin, aMin, bMax, wt, sec, tips };
@@ -790,7 +831,8 @@ class Component extends DCLogic {
     const aMin = -reach(A.tanv, A.tanp), bMax = L + reach(B.tanv, B.tanp), spMin = L - reach(A.tanv + B.tanv, A.tanp + B.tanp);
     let invalid = false;
     if (spMin <= 0) { invalid = true; warns.push({ lvl: 'err', t: 'End cuts cross \u2014 short point \u2264 0.' }); }
-    const holes = this.boxHoles(sec, L, Pm, warns, invalid, a, b, stns, aMin, bMax);
+    const aH = A.bvIn ? a.map(v => v + A.bvC) : a, bH = B.bvIn ? b.map(v => v - B.bvC) : b;   // holes keep clear of a bevel drawn into the file
+    const holes = this.boxHoles(sec, L, Pm, warns, invalid, aH, bH, stns, aMin, bMax);
     const wt = sec.wtFt * (L / 12) * this.matRec().f;
     const c = { kind: 'box', invalid, warns, L, A, B, stns, a, b, N: stns.length, wrap: Pm, holes, LP: bMax - aMin, SP: spMin, OAL: bMax - aMin, aMin, bMax, wt, sec,
       faceS: { B: 0, L: fw / 2 + qa + fh / 2, T: Pm / 2, R: Pm / 2 + fw / 2 + qa + fh / 2 }, fw, fh };
@@ -1514,7 +1556,7 @@ class Component extends DCLogic {
         const cs = Math.cos(phi), sn = Math.sin(phi);
         const fi = (((u / wrap) * N + N / 2) % N + N) % N;
         const i0 = Math.floor(fi) % N, i1 = (i0 + 1) % N, f = fi - Math.floor(fi);
-        return { oy: ro * cs, oz: ro * sn, iy: ri * cs, iz: ri * sn,
+        return { oy: ro * cs, oz: ro * sn, iy: ri * cs, iz: ri * sn, ny: cs, nz: sn,
           a: c.a[i0] * (1 - f) + c.a[i1] * f, b: c.b[i0] * (1 - f) + c.b[i1] * f };
       }
       const t = c.sec.t;
@@ -1528,9 +1570,12 @@ class Component extends DCLogic {
       let ny = q0.ny + (q1.ny - q0.ny) * f, nz = q0.nz + (q1.nz - q0.nz) * f;
       const nl = Math.hypot(ny, nz) || 1; ny /= nl; nz /= nl;
       const j1 = last ? 0 : i0 + 1;
-      return { oy: y, oz: z, iy: y - t * ny, iz: z - t * nz,
+      return { oy: y, oz: z, iy: y - t * ny, iz: z - t * nz, ny, nz,
         a: c.a[i0] * (1 - f) + c.a[j1] * f, b: c.b[i0] * (1 - f) + c.b[j1] * f };
     };
+    // a weld bevel drawn into the laser file shows in the picture too: the outside stops short of the end by
+    // bvC, a sloped face runs in to the land edge, and the land closes to the bore
+    const bevA = c.A && c.A.bvIn ? c.A : null, bevB = c.B && c.B.bvIn ? c.B : null;
     // wrap rows: every station row plus refinement inside each hole span so
     // the opening keeps its curvature.
     const rowSet = new Set([0, wrap]);
@@ -1580,7 +1625,7 @@ class Component extends DCLogic {
     // subdivision is a property of the ROW alone, so adjacent bands always
     // tile shared rows identically and the surface stays crack-free.
     const hs = holes.slice().sort((p, q) => (p.x - q.x) || (p.u - q.u));
-    const bnd = (ri, A) => {
+    const bnd = (ri, A, outer) => {
       const pairs = hs.map((hh) => {
         const p = rowPairs[ri].find((q) => q.h === hh);
         return p && p.x1 - p.x0 > 1e-9 ? { x0: p.x0, x1: p.x1, real: true } : { x0: hh.x, x1: hh.x, real: false };
@@ -1596,16 +1641,16 @@ class Component extends DCLogic {
           }
         }
       }
-      const xs = [A.a];
+      const xs = [A.a + (outer && bevA ? bevA.bvC : 0)];
       for (const p of pairs) xs.push(p.x0, p.x1);
-      xs.push(A.b);
+      xs.push(A.b - (outer && bevB ? bevB.bvC : 0));
       return xs;
     };
-    const surf = (mapY, mapZ, flip) => {
+    const surf = (mapY, mapZ, flip, outer) => {
       for (let r = 0; r + 1 < rowsU.length; r++) {
         const u0 = rowsU[r], u1 = rowsU[r + 1];
         const A0 = rowAt[r], A1 = rowAt[r + 1];
-        const B0 = bnd(r, A0), B1 = bnd(r + 1, A1);
+        const B0 = bnd(r, A0, outer), B1 = bnd(r + 1, A1, outer);
         for (let m = 0; m + 1 < B0.length; m++) {
           if (m & 1) { // a hole's own span: skip when the hole pierces this band
             const hh = hs[(m - 1) / 2];
@@ -1620,15 +1665,23 @@ class Component extends DCLogic {
         }
       }
     };
-    surf((A) => A.oy, (A) => A.oz, true);
-    surf((A) => A.iy, (A) => A.iz, false);
-    // end-cut faces: square radial cut, inner and outer end at the same x.
+    surf((A) => A.oy, (A) => A.oz, true, true);
+    surf((A) => A.iy, (A) => A.iz, false, false);
+    // end-cut faces: square radial cut, inner and outer end at the same x - or, on a bevelled end, the
+    // sloped face from the outside edge in to the land edge, then the land.
     for (let r = 0; r + 1 < rowsU.length; r++) {
       const A0 = rowAt[r], A1 = rowAt[r + 1];
-      for (const [end, flip] of [['a', true], ['b', false]]) {
-        const o0 = vid(A0[end], A0.oy, A0.oz), o1 = vid(A1[end], A1.oy, A1.oz);
+      for (const [end, flip, E, sg] of [['a', true, bevA, 1], ['b', false, bevB, -1]]) {
         const i1 = vid(A1[end], A1.iy, A1.iz), i0 = vid(A0[end], A0.iy, A0.iz);
-        tri(o0, o1, i1, flip); tri(o0, i1, i0, flip);
+        if (!E) {
+          const o0 = vid(A0[end], A0.oy, A0.oz), o1 = vid(A1[end], A1.oy, A1.oz);
+          tri(o0, o1, i1, flip); tri(o0, i1, i0, flip);
+          continue;
+        }
+        const o0 = vid(A0[end] + sg * E.bvC, A0.oy, A0.oz), o1 = vid(A1[end] + sg * E.bvC, A1.oy, A1.oz);
+        const l0 = vid(A0[end], A0.oy - E.bvW * A0.ny, A0.oz - E.bvW * A0.nz), l1 = vid(A1[end], A1.oy - E.bvW * A1.ny, A1.oz - E.bvW * A1.nz);
+        tri(o0, o1, l1, flip); tri(o0, l1, l0, flip);
+        tri(l0, l1, i1, flip); tri(l0, i1, i0, flip);      // no land: these two fold to nothing and are dropped
       }
     }
     // hole barrels: the radial cut wall of each opening.
@@ -1693,10 +1746,15 @@ class Component extends DCLogic {
       const st3 = this.shellStations(c);
       const a = c.a, b = c.b;
       if (glow) {
-        addLoop(st3.map((s3, i) => [a[i], s3.oy, s3.oz]));
+        // on a bevelled end the outside edge sits back from the end, and the land edge is drawn as well
+        const bvA = c.A && c.A.bvIn ? c.A : null, bvB = c.B && c.B.bvIn ? c.B : null, wall = c.kind === 'round' ? c.sec.ro - c.sec.ri : c.sec.t;
+        const land = (s3, E) => { const k = E.bvW / wall; return [s3.oy + (s3.iy - s3.oy) * k, s3.oz + (s3.iz - s3.oz) * k]; };
+        addLoop(st3.map((s3, i) => [a[i] + (bvA ? bvA.bvC : 0), s3.oy, s3.oz]));
         addLoop(st3.map((s3, i) => [a[i], s3.iy, s3.iz]));
-        addLoop(st3.map((s3, i) => [b[i], s3.oy, s3.oz]));
+        addLoop(st3.map((s3, i) => [b[i] - (bvB ? bvB.bvC : 0), s3.oy, s3.oz]));
         addLoop(st3.map((s3, i) => [b[i], s3.iy, s3.iz]));
+        if (bvA && bvA.land > 1e-6) addLoop(st3.map((s3, i) => [a[i], ...land(s3, bvA)]));
+        if (bvB && bvB.land > 1e-6) addLoop(st3.map((s3, i) => [b[i], ...land(s3, bvB)]));
       }
       for (const h of c.holes) {
         if (!h.ok) continue;
@@ -1998,7 +2056,7 @@ class Component extends DCLogic {
     const out = [];
     for (const k of Object.keys(groups)) {
       const g = groups[k];
-      const stickIn = parseFloat(st.stickSel[k] || '288');
+      const stickIn = Math.min(parseFloat(st.stickSel[k] || '288'), Component.LASER.maxLen);   // a stick longer than the laser's bed is never pulled
       const cap = stickIn - grip;
       const lens = g.lens.slice().sort((x, y) => y - x);
       const sticks = [];
@@ -2029,7 +2087,7 @@ class Component extends DCLogic {
    *  app had to skip is a hole missing from the part, so nothing is exported. */
   blocked(c) { return !!(c.invalid || c.errCount > 0 || (c.warns || []).some(w => w.lvl === 'err')); }
   /** Name of the laser file, less the quantity: mark, section, grade and the
-   *  true overall length, plus any weld bevel the operator has to set. The
+   *  true overall length, plus any weld bevel (cut from the file, or for the operator to add). The
    *  operator reads this before opening the file, so it has to be enough to
    *  pull the right stock. Letters, digits, dot, dash and underscore only. */
   laserBase() {
@@ -2038,8 +2096,10 @@ class Component extends DCLogic {
     // no dot in the mark: Windows reads "AUX.2_..." as the device AUX
     const mark = this.markKey(st.mark) || 'part';
     const len = c.L ? +((c.OAL || c.L).toFixed(3)) : 0;
-    const bev = ['A', 'B'].filter(k => c[k] && c[k].bv > 0).map(k => k + c[k].bv);
-    return [mark, clean(c.sec.label), clean(this.matRec().id), len + 'in'].join('_') + (bev.length ? '_BEVEL-' + clean(bev.join('-')) : '');
+    // BEVELED-A37.5: that bevel is drawn in the file and the laser cuts it. ADD-BEVEL-B30: it is not - the operator adds it.
+    const bev = (inFile) => ['A', 'B'].filter(k => c[k] && c[k].bv > 0 && !!c[k].bvIn === inFile).map(k => k + c[k].bv);
+    const drawn = bev(true), add = bev(false);
+    return [mark, clean(c.sec.label), clean(this.matRec().id), len + 'in'].join('_') + (drawn.length ? '_BEVELED-' + clean(drawn.join('-')) : '') + (add.length ? '_ADD-BEVEL-' + clean(add.join('-')) : '');
   }
   laserName(qty) { return this.laserBase() + ' - QTY ' + qty + '.igs'; }
   /** What is wrong with the part mark, or '' — a blank or repeated mark is how
@@ -2167,17 +2227,17 @@ class Component extends DCLogic {
         endA: c.A ? this.endWords(c.A, c.sec) : '\u2014', endB: c.B ? this.endWords(c.B, c.sec) : '\u2014',
         holes: Object.entries(by).map(([k, v]) => v + ' \u00D7 ' + k).join(', ') || 'None',
         wt: Math.round(c.wt) + ' lb each',
-        bevel: !!((c.A && c.A.bv) || (c.B && c.B.bv)),
+        bevelIn: ['A', 'B'].filter(k => c[k] && c[k].bv > 0 && c[k].bvIn), bevelAdd: ['A', 'B'].filter(k => c[k] && c[k].bv > 0 && !c[k].bvIn),
         cautions: [this.lenCaution(c)].filter(Boolean).concat((c.warns || []).filter(w => w.lvl !== 'err' && !/ONE wall/.test(w.t)).map(w => w.t)),
         base: this.blocked(c) ? '' : this.laserBase()
       };
     };
     if (kind === 'part') {
       const p = line();
-      return { kind, dest, noJob: !st.job, one: Object.assign(p, { mark: st.mark, qty: st.qty, file: p.base + ' - QTY ' + st.qty + '.igs' }), rows: [], cautions: p.cautions, bevel: p.bevel, out: 0, n: 1 };
+      return { kind, dest, noJob: !st.job, one: Object.assign(p, { mark: st.mark, qty: st.qty, file: p.base + ' - QTY ' + st.qty + '.igs' }), rows: [], cautions: p.cautions, bevelIn: p.bevelIn.length > 0, bevelAdd: p.bevelAdd.length > 0, out: 0, n: 1 };
     }
     const rows = st.parts.map(pt => { let p; try { p = this._withPart(pt, line); } catch (e) { p = { bad: true, why: 'its saved setup could not be read', stock: pt.desc, len: pt.lenT2, cautions: [] }; } if (!(pt.qty >= 1)) Object.assign(p, { bad: true, why: 'its quantity is blank' }); return Object.assign(p, { mark: pt.mark, qty: pt.qty }); });
-    return { kind, dest, noJob: !st.job, one: null, rows, cautions: [], bevel: rows.some(r => r.bevel), out: rows.filter(r => r.bad).length, n: rows.filter(r => !r.bad).length };
+    return { kind, dest, noJob: !st.job, one: null, rows, cautions: [], bevelIn: rows.some(r => !r.bad && r.bevelIn && r.bevelIn.length), bevelAdd: rows.some(r => !r.bad && r.bevelAdd && r.bevelAdd.length), out: rows.filter(r => r.bad).length, n: rows.filter(r => !r.bad).length };
   }
   askSave(kind) {
     if (this.state.solidBusy || this.state.jobBusy) return;
@@ -2887,6 +2947,7 @@ class Component extends DCLogic {
     const famBtn = (f) => ({ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, padding: '10px 4px 8px', cursor: 'pointer', borderRadius: 4, border: '1px solid ' + (st.family === f ? '#1F3A5F' : '#D5DAE0'), background: st.family === f ? 'rgba(31,58,95,.08)' : '#FFFFFF', color: st.family === f ? '#1F3A5F' : '#47515C' });
     const kind = c.kind || this.famKind();
     const isRoundFam = kind === 'round';
+    const fitsLaser = (rec) => Math.hypot(rec[0], rec[1]) <= Component.LASER.maxOD + 1e-6;   // beam / channel record [d, bf, ...]: turns inside the laser's circle
     const npsOpts = D ? Object.keys(D.PIPE_OD).sort((a, b) => (this.parseIn(a) || 0) - (this.parseIn(b) || 0)) : [], schedOpts = D ? D.PIPE_SCHEDS : [];
     const fmtDeg = (x) => (Math.round(x * 10) / 10) + '\u00B0';
 
@@ -2945,6 +3006,9 @@ class Component extends DCLogic {
         tpT: e.tpT, tvT: e.tvT, sTp: setEnd(id, 'tpT'), sTv: setEnd(id, 'tvT'),
         wantBevel: !!e.wantBevel, tgBevel: tgEnd(id, 'wantBevel'), bevS: pill(!!e.wantBevel),
         bevEcho: E && E.bv ? 'BEVEL ' + E.bv + '\u00B0 \u00D7 ' + this.fr16(E.land) + '\u2033 LAND' : '',
+        bevHint: E && E.bvIn
+          ? 'Drawn into the laser file \u2014 the laser cuts it. The outside edge is cut back ' + E.bvC.toFixed(3) + '\u2033; the land stays at the end, so the length you typed is still the long point.'
+          : 'NOT drawn into the laser file \u2014 the app draws a bevel only on a square-cut end of pipe or tube. The file name, cut list and ticket say ADD BEVEL, and the operator adds it in TubesT.',
         bevYes: setEndV(id, 'wantBevel', true), bevNo: setEndV(id, 'wantBevel', false),
         bevYesS: pill(e.wantBevel), bevNoS: pill(!e.wantBevel),
         bvT: e.bvT, landT: e.landT, open2: e.open, app: e.app,
@@ -3290,12 +3354,12 @@ class Component extends DCLogic {
       tubeWallOpts: (D ? D.TUBE_WALLS : []).map(w2 => ({ l: w2[0], v: w2[1] })),
       onTwallPick: (e) => { if (e.target.value) this.setState({ twallT: e.target.value }); },
       hsize: st.hsize, hwallT: st.hwallT, onHsize: setS('hsize'), onHwall: setS('hwallT'),
-      hssSizeOpts: D ? D.HSS_SIZES : [], hssWallOpts: D ? D.HSS_WALLS : [],
-      bser: st.bser, onBser: (e) => { const v = e.target.value; this.setState({ bser: v, bsize: v === 'CUST' ? '' : Object.keys(D ? D[v] : { a: 1 })[0] }); },
-      bsize: st.bsize, onBsize: setS('bsize'), beamSizeOpts: D && st.bser !== 'CUST' ? Object.keys(D[st.bser]) : [],
+      hssSizeOpts: D ? D.HSS_SIZES.filter(o => o === st.hsize || this.hssFits(o)) : [], hssWallOpts: D ? D.HSS_WALLS : [],
+      bser: st.bser, onBser: (e) => { const v = e.target.value; this.setState({ bser: v, bsize: v === 'CUST' ? '' : (D ? (Object.keys(D[v]).find(k => fitsLaser(D[v][k])) || Object.keys(D[v])[0]) : 'a') }); },
+      bsize: st.bsize, onBsize: setS('bsize'), beamSizeOpts: D && st.bser !== 'CUST' ? Object.keys(D[st.bser]).filter(k => k === st.bsize || fitsLaser(D[st.bser][k])) : [],
       isCustom: st.family === 'beam' && st.bser === 'CUST', notCustomBeam: st.family === 'beam' && st.bser !== 'CUST',
-      cser: st.cser, onCser: (e) => { const v = e.target.value; this.setState({ cser: v, csize: Object.keys(D ? D[v] : { a: 1 })[0] }); },
-      csize: st.csize, onCsize: setS('csize'), chanSizeOpts: D ? Object.keys(D[st.cser]) : [],
+      cser: st.cser, onCser: (e) => { const v = e.target.value; this.setState({ cser: v, csize: D ? (Object.keys(D[v]).find(k => fitsLaser(D[v][k])) || Object.keys(D[v])[0]) : 'a' }); },
+      csize: st.csize, onCsize: setS('csize'), chanSizeOpts: D ? Object.keys(D[st.cser]).filter(k => k === st.csize || fitsLaser(D[st.cser][k])) : [],
       asize: st.asize, athkT: st.athkT, onAsize: setS('asize'), onAthk: setS('athkT'),
       anglSizeOpts: D ? D.ANGLE_SIZES : [], anglThkOpts: D ? D.ANGLE_THKS : [],
       cdT: st.cdT, cbT: st.cbT, ctfT: st.ctfT, ctwT: st.ctwT, cwT: st.cwT,
@@ -3384,7 +3448,7 @@ class Component extends DCLogic {
       rvHasSp: !!(rv && rv.one && rv.one.sp),
       rvRows: rv ? rv.rows.map(r => ({ mark: r.mark, qty: '\u00D7' + r.qty, txt: r.bad ? 'LEFT OUT \u2014 ' + (r.why || 'has an error') : r.stock + ' \u00B7 ' + r.len + ((r.endA !== 'Square cut' || r.endB !== 'Square cut') ? ' \u00B7 A: ' + r.endA + ' \u00B7 B: ' + r.endB : '') + (r.holes !== 'None' ? ' \u00B7 holes: ' + r.holes : ''), s: { color: r.bad ? '#B3261E' : '#14181D', font: (r.bad ? '700' : '400') + ' 12.5px/1.45 Barlow, sans-serif' } })) : [],
       rvDest: rv ? rv.dest : '', rvNoJob: !!rv && rv.noJob,
-      rvBevel: !!rv && rv.bevel,
+      rvBevelIn: !!rv && !!rv.bevelIn, rvBevelAdd: !!rv && !!rv.bevelAdd,
       rvHasCautions: !!rv && rv.cautions.length > 0, rvCautions: rv ? rv.cautions.map(t => ({ t })) : [],
       rvHasOut: !!rv && rv.out > 0, rvOutTxt: rv && rv.out ? rv.out + ' part' + (rv.out > 1 ? 's' : '') + ' cannot be saved and will be LEFT OUT. Open ' + (rv.out > 1 ? 'each one' : 'it') + ' from the job list and fix what is shown in red.' : '',
       rvGoLbl: rv ? (rv.kind === 'job' ? (rv.n ? 'Save ' + rv.n + ' laser file' + (rv.n > 1 ? 's' : '') : 'Nothing to save') : 'Save laser file') : '',
@@ -3424,7 +3488,7 @@ class Component extends DCLogic {
         key: n2.key, label: n2.label,
         chip: n2.sticks + ' STICK' + (n2.sticks > 1 ? 'S' : '') + ' \u00B7 ' + Math.round(n2.util * 100) + '% \u00B7 DROP ' + this.fmtFtIn(n2.drop) + (n2.tooLong ? ' \u00B7 PART > STICK!' : ''),
         chipS: { font: '500 12px/1.4 JetBrains Mono, monospace', color: n2.tooLong ? '#B3261E' : '#47515C' },
-        stick: String(st.stickSel[n2.key] || '288'),
+        stick: String(Math.min(parseFloat(st.stickSel[n2.key] || '288'), Component.LASER.maxLen)),
         sStick: (e) => this.setState(s => ({ stickSel: Object.assign({}, s.stickSel, { [n2.key]: e.target.value }) })),
         del: () => { if (!confirm('Erase all ' + n2.pieces + ' pc of ' + n2.label + ' from this job?')) return; this.setState(s => ({ parts: s.parts.filter(p => p.groupKey !== n2.key) })); },
         barS: { height: 4, width: Math.round(n2.util * 100) + '%', background: n2.tooLong ? '#B3261E' : '#1F3A5F', borderRadius: 2 }

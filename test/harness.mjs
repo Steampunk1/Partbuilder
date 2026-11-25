@@ -429,6 +429,25 @@ function meshChecks(m) {
   return { bad, vol, tris: m.idx.length / 3 };
 }
 {
+  // a weld bevel drawn into the laser file shows in the 3D picture: still a closed solid, and the metal
+  // taken off is the bevel triangle swept round the section
+  const T = Math.tan(37.5 * Math.PI / 180);
+  const c = await freshApp({ lenT: '24' });
+  const v0 = meshChecks(c.shellSolid(c.calc())).vol;
+  c.setState((s) => ({ ends: { A: { ...s.ends.A, wantBevel: true, bvT: '37.5', landT: '1/16' }, B: { ...s.ends.B, wantBevel: true, bvT: '37.5', landT: '0' } } }));
+  const m = meshChecks(c.shellSolid(c.calc())), ro = 3.3125, gone = (w) => Math.PI * T * (ro * w * w - w * w * w / 3);
+  ok(m.bad === 0, 'bevelled pipe picture: edge-manifold', m.bad + ' bad edges');
+  near(v0 - m.vol, gone(.28 - 1 / 16) + gone(.28), .02 * (gone(.28 - 1 / 16) + gone(.28)), 'bevelled pipe picture: the bevel metal is gone, both ends');
+  c.setState((s) => ({ wantHoles: true, groups: [{ ...s.groups[0], type: 'cust', diaT: '1', azT: '90', x0T: '3', nT: '1', xsT: '' }] }));
+  ok(meshChecks(c.shellSolid(c.calc())).bad === 0, 'bevelled pipe + hole picture: edge-manifold');
+  const h = await freshApp(); h.pickFam('hss')(); h.setState({ lenT: '24', hsize: '4x4', hwallT: '1/4' });
+  const h0 = meshChecks(h.shellSolid(h.calc())).vol;
+  h.setState((s) => ({ ends: { A: { ...s.ends.A, wantBevel: true, bvT: '37.5', landT: '1/16' }, B: s.ends.B } }));
+  const mh = meshChecks(h.shellSolid(h.calc())), w = .25 - 1 / 16, P0 = 4 * (4 - 2 * .5) + 2 * Math.PI * .5, goneH = T * (P0 * w * w / 2 - Math.PI * w * w * w / 3);
+  ok(mh.bad === 0, 'bevelled square tube picture: edge-manifold', mh.bad + ' bad edges');
+  near(h0 - mh.vol, goneH, .03 * goneH, 'bevelled square tube picture: the bevel metal is gone');
+}
+{
   // plain pipe: closed manifold, volume matches the annulus exactly
   const c = await fresh({ lenT: '120' });
   const m = meshChecks(c.shellSolid(c.calc()));

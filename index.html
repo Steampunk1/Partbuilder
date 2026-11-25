@@ -260,7 +260,7 @@
                     <label class="f"><span>Bevel goes on</span><select data-sv="{{ ec.app }}" value="{{ ec.app }}" onChange="{{ ec.sApp }}"><option value="BOTH">Flanges and web</option><option value="FLANGES">Flanges only</option><option value="WEB">Web only</option></select></label>
                   </div>
                 </sc-if>
-                <div class="hint">The bevel is written into the laser file name, the cut list and the ticket. The laser file itself is drawn square — the operator sets this bevel in TubesT.</div>
+                <div class="hint">{{ ec.bevHint }}</div>
               </div>
             </sc-if>
 
@@ -526,7 +526,8 @@
             <dl class="rv"><dt>Goes to</dt><dd>{{ rvDest }}</dd></dl>
             <sc-if value="{{ rvHasOut }}" hint-placeholder-val="{{ false }}"><div class="issues"><b>Not everything can be saved</b><div>{{ rvOutTxt }}</div></div></sc-if>
             <sc-if value="{{ rvHasCautions }}" hint-placeholder-val="{{ false }}"><div class="issues warn"><b>Check before cutting</b><sc-for list="{{ rvCautions }}" as="w" hint-placeholder-count="1"><div>{{ w.t }}</div></sc-for></div></sc-if>
-            <sc-if value="{{ rvBevel }}" hint-placeholder-val="{{ false }}"><div class="issues warn"><b>Weld bevel</b><div>The laser file is drawn square. The bevel is in the file name — the operator has to set it in TubesT.</div></div></sc-if>
+            <sc-if value="{{ rvBevelIn }}" hint-placeholder-val="{{ false }}"><div class="hint"><b>Weld bevel is in the laser file</b> (file name says BEVELED). The laser cuts it from the model: the land at the inside edge is the long point, the outside edge sits back as shown above.</div></sc-if>
+            <sc-if value="{{ rvBevelAdd }}" hint-placeholder-val="{{ false }}"><div class="issues warn"><b>Weld bevel NOT in the laser file</b><div>That end is drawn square. The file name says ADD-BEVEL — the operator has to add it in TubesT.</div></div></sc-if>
             <sc-if value="{{ rvNoJob }}" hint-placeholder-val="{{ false }}"><div class="hint">No job number typed — the file goes in the NO-JOB folder. Type the Job # first to keep jobs apart.</div></sc-if>
             <div class="g2">
               <button class="btn" onClick="{{ rvBack }}">Go back and change it</button>
@@ -554,7 +555,8 @@
               <dt>Gauge</dt><dd>Hole-line spacing across a flange, or from an angle's heel.</dd>
               <dt>Job list</dt><dd>Open a part to change it and save over it. One button saves every part for the laser.</dd>
               <dt>Laser folder</dt><dd>Choose the OneDrive folder the laser reads from once. After that every laser file is saved straight into it, in a folder for its job number.</dd>
-              <dt>Laser limits</dt><dd>14″ OD and 42′ long at most. Anything bigger is refused before a file is made.</dd>
+              <dt>Laser limits</dt><dd>42′ long at most, and the piece has to turn inside a 14″ circle: 14″ OD for pipe and round tube, 14″ corner to corner for square tube, beam, channel and angle. Anything bigger is refused before a file is made, and the size lists only show what fits.</dd>
+              <dt>Weld bevel</dt><dd>45° at most. On a square-cut end of pipe, round tube or square / rect tube the bevel is drawn into the laser file and the laser cuts it: the land (inside edge) stays at the end, so the length you typed is still the long point, and the file name says BEVELED. On any other end (angled, fish-mouth, beam, channel, angle) the bevel is not in the file — the file name says ADD-BEVEL and the operator adds it in TubesT.</dd>
               <dt>Red list</dt><dd>Anything in the red list has to be fixed before a laser file can be saved. Nothing is guessed for you.</dd>
             </dl>
             <button class="btn primary block" onClick="{{ closeHelp }}">Got it</button>
@@ -595,7 +597,7 @@
             <div style="margin-bottom:10px">
               <div class="row" style="margin-bottom:5px">
                 <span class="grow" style="font:600 13px/1.2 var(--font-body)">{{ ng.label }}</span>
-                <label class="f" style="width:74px;flex:none"><select style="height:30px" data-sv="{{ ng.stick }}" value="{{ ng.stick }}" onChange="{{ ng.sStick }}"><option value="240">20′</option><option value="252">21′</option><option value="288">24′</option><option value="480">40′</option><option value="504">42′</option><option value="576">48′</option></select></label>
+                <label class="f" style="width:74px;flex:none"><select style="height:30px" data-sv="{{ ng.stick }}" value="{{ ng.stick }}" onChange="{{ ng.sStick }}"><option value="240">20′</option><option value="252">21′</option><option value="288">24′</option><option value="480">40′</option><option value="504">42′</option></select></label>
               </div>
               <div class="bar"><div style="{{ ng.barS }}"></div></div>
               <div style="margin-top:4px"><span style="{{ ng.chipS }}">{{ ng.chip }}</span></div>
