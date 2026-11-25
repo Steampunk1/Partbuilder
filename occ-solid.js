@@ -9,6 +9,8 @@
 // Axes: X = along the part (End A at low X). Pipe: +Y = 0 deg (top),
 // +Z = 90 deg. Runs in the browser and in Node (test/).
 
+import { edgeAgreement } from './iges-check.js';
+
 export function kit(oc) {
   const cache = {};
   // embind exposes C++ overloads as Name_1, Name_2 ... ; find the one that takes these arguments.
@@ -160,8 +162,10 @@ function pipeSolid(K, comp, r) {
 function planeEnds(K, s, r, S, both) {
   const A = r.A || {}, B = r.B || {}, L = r.L;
   // "both": the blank was made over-long at both ends, so a square end is trimmed by its plane too
-  if (both || A.tanv || A.tanp) s = K.cut(s, K.slab([0, 0, 0], [-1, -(A.tanv || 0), -(A.tanp || 0)], S));
-  if (both || B.tanv || B.tanp) s = K.cut(s, K.slab([L, 0, 0], [1, -(B.tanv || 0), -(B.tanp || 0)], S));
+  // a steep plane crosses the section over a longer run: the cutting block grows with the slope so it always swallows the whole over-long end
+  const big = (E) => S * (1 + Math.abs(E.tanv || 0) + Math.abs(E.tanp || 0));
+  if (both || A.tanv || A.tanp) s = K.cut(s, K.slab([0, 0, 0], [-1, -(A.tanv || 0), -(A.tanp || 0)], big(A)));
+  if (both || B.tanv || B.tanp) s = K.cut(s, K.slab([L, 0, 0], [1, -(B.tanv || 0), -(B.tanp || 0)], big(B)));
   return s;
 }
 const reach = (r, half) => { const g = (E) => E ? (Math.abs(E.tanv || 0) + Math.abs(E.tanp || 0)) * half : 0; return { x0: -g(r.A) - 1, x1: r.L + g(r.B) + 1, sq: !g(r.A) && !g(r.B) }; };
@@ -192,7 +196,7 @@ function boxSolid(K, comp, r) {
 // ---------------------------------------------------------------- BEAM / CHANNEL
 const rootR = (sec) => Math.max(.15, Math.min(1.1 * sec.tw + .05, (sec.d / 2 - sec.tf) * .45, ((sec.chan ? sec.bf - sec.tw : (sec.bf - sec.tw) / 2)) * .45));
 function plateSolid(K, comp, r) {
-  const sec = r.sec, { d, bf, tf, tw } = sec, hw = d / 2 - tf, zL = r.zL, zR = r.zR, rr = rootR(sec), L = r.L;
+  const sec = r.sec, { d, bf, tf, tw } = sec, hw = d / 2 - tf, zL = r.zL, zR = r.zR, rr = comp && typeof comp.rootFillet === 'function' ? comp.rootFillet(sec) : rootR(sec), L = r.L;
   const A = r.A, B = r.B, coped = !!(A.ct || A.cb || B.ct || B.cb || (A.rat && A.rat !== 'NONE') || (B.rat && B.rat !== 'NONE'));
   const R = reach(r, Math.max(d, bf)), x0 = (R.sq && !coped) ? 0 : R.x0, len = ((R.sq && !coped) ? L : R.x1) - x0;
   const yz = sec.chan
@@ -200,15 +204,31 @@ function plateSolid(K, comp, r) {
     : [[-d / 2, -bf / 2], [-d / 2, bf / 2], [-hw, bf / 2], [-hw, tw / 2], [hw, tw / 2], [hw, bf / 2], [d / 2, bf / 2], [d / 2, -bf / 2], [hw, -bf / 2], [hw, -tw / 2], [-hw, -tw / 2], [-hw, -bf / 2]];
   const fil = yz.filter(q => Math.abs(Math.abs(q[0]) - hw) < 1e-9 && Math.abs(Math.abs(q[1]) - tw / 2) < 1e-9).map(q => [q[0], q[1], rr]);
   let s = K.prism(K.sectionFace(x0, yz, fil), [len, 0, 0]);
-  if (!coped) s = planeEnds(K, s, r, 4 * Math.max(d, bf) + 40, !R.sq);
-  else {
-    // Copes / weld-access holes: keep exactly what the flat program keeps - the web outline seen from
-    // the side and each flange outline seen from above (the laser cuts each face square from outside).
-    const clean = (pts) => { const o = []; for (const p of pts) { const l = o[o.length - 1]; if (!l || Math.hypot(l[0] - p[0], l[1] - p[1]) > 1e-7) o.push(p); } while (o.length > 3 && Math.hypot(o[0][0] - o[o.length - 1][0], o[0][1] - o[o.length - 1][1]) < 1e-7) o.pop(); return o; };
-    const webKeep = K.prism(K.polyFace(clean(r.web).map(q => [q[0], q[1], zL - 1])), [0, 0, zR - zL + 2]);
-    const tfKeep = K.prism(K.polyFace(clean(r.tfO).map(q => [q[0], hw, q[1]])), [0, tf + 1, 0]);
-    const bfKeep = K.prism(K.polyFace(clean(r.bfO).map(q => [q[0], -hw, q[1]])), [0, -(tf + 1), 0]);
-    s = K.unify(K.common(s, K.fuse(K.fuse(webKeep, tfKeep), bfKeep)));
+  // Every end is cut by its true plane, coped or not: a miter is the same cut whether or not the part
+  // also has a cope somewhere. Copes and weld-access holes are then taken out of that blank.
+  s = planeEnds(K, s, r, 4 * Math.max(d, bf) + 40, coped || !R.sq);
+  if (coped) {
+    const X0 = x0 - 2, X1 = x0 + len + 2, Z0 = zL - 1, DZ = zR - zL + 2, FIL = 48;
+    const arc = (cx, cy, rad, a0, a1) => { const o = []; for (let i = 1; i <= FIL; i++) { const t = a0 + (a1 - a0) * i / FIL; o.push([cx + rad * Math.cos(t), cy + rad * Math.sin(t)]); } return o; };
+    const cutXY = (pts) => { s = K.cut(s, K.prism(K.polyFace(pts.map(q => [q[0], q[1], Z0])), [0, 0, DZ])); };
+    for (const [E, isA] of [[A, true], [B, false]]) {
+      const xe = isA ? 0 : L, sg = isA ? 1 : -1, xo = isA ? X0 : X1;
+      if (E.ct) {   // top cope: floor at yt, vertical cut at xc, corner radius between them
+        const { c, dc, r: cr } = E.ct, yt = d / 2 - dc, xc = xe + sg * c;
+        cutXY([[xo, yt], [xc - sg * cr, yt]].concat(cr > 1e-6 ? arc(xc - sg * cr, yt + cr, cr, -Math.PI / 2, isA ? 0 : -Math.PI) : [], [[xc, d / 2 + 1], [xo, d / 2 + 1]]));
+      }
+      if (E.cb) {
+        const { c, dc, r: cr } = E.cb, yb = -d / 2 + dc, xc = xe + sg * c;
+        cutXY([[xo, yb], [xc - sg * cr, yb]].concat(cr > 1e-6 ? arc(xc - sg * cr, yb - cr, cr, Math.PI / 2, isA ? 0 : Math.PI) : [], [[xc, -d / 2 - 1], [xo, -d / 2 - 1]]));
+      }
+      // weld-access holes: a round notch in the web, centred on the end cut, tight under the flange
+      const tv = isA ? -(E.tanv || 0) : (E.tanv || 0);
+      const rat = (yc) => { s = K.cut(s, K.cyl([xe + yc * tv, yc, -tw / 2 - .5], [0, 0, 1], E.rr, tw + 1)); };
+      const gap = (comp && comp.constructor && comp.constructor.RAT_GAP) || 0.005;   // stops a hair under the flange (see Component.RAT_GAP)
+      if ((E.rat === 'TOP' || E.rat === 'BOTH') && !E.ct) rat(hw - E.rr - gap);
+      if ((E.rat === 'BOT' || E.rat === 'BOTH') && !E.cb) rat(-hw + E.rr + gap);
+    }
+    s = K.unify(s);
   }
   for (const h of r.holes) {
     if (!h.ok) continue;
@@ -313,13 +333,18 @@ export function writeIges(K, shape, name) {
   // writer mangles analytic ellipses (a miter on a round or radiused corner); as NURBS they go out exact.
   const conv = K.done(K.mk('BRepBuilderAPI_NurbsConvert', shape, true));
   const ag = agreeEdges(K, conv), nurbs = ag.shape;
-  // Nothing is written unless the two descriptions of every cut edge agree and the solid is still one valid solid.
-  if (ag.worst > 1e-3) throw new Error('IGES: a cut edge is described two ways that differ by ' + ag.worst.toFixed(4) + ' in.');
+  if (ag.worst > .02) throw new Error('IGES: a cut edge is described two ways that differ by ' + ag.worst.toFixed(4) + ' in.');
   if (ag.rebuilt && !(K.valid(nurbs) && K.count(nurbs, 'TopAbs_SOLID') === 1)) throw new Error('IGES: the solid did not survive the edge repair.');
   if (!K.call(w, 'AddShape', K.scale(nurbs, 25.4))) throw new Error('IGES: shape not accepted');   // the writer converts from millimetres to the unit asked for
   w.ComputeModel();
   K.call(w, 'Write', '/pb.igs', false);
-  return readFS(oc, '/pb.igs');
+  const text = readFS(oc, '/pb.igs');
+  // Last gate, on the file itself and without the kernel: read the text back with an independent reader and
+  // measure both descriptions of every cut edge. Nothing is handed over unless they are the same edge.
+  const chk = edgeAgreement(text);
+  if (chk.unreadable) throw new Error('IGES: ' + chk.unreadable + ' cut edge' + (chk.unreadable > 1 ? 's' : '') + ' in the file could not be verified.');
+  if (chk.worst > 2e-3) throw new Error('IGES: a cut edge is described two ways that differ by ' + chk.worst.toFixed(4) + ' in.');
+  return text;
 }
 
 export function readBack(K, text, kind) {

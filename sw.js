@@ -13,6 +13,7 @@ const LOCAL = [
   './profile-db.js',
   './three-d-stage.js',
   './occ-solid.js',
+  './iges-check.js',
   './vendor/occ/opencascade.wasm.js',
   './vendor/occ/opencascade.wasm.wasm',
   './vendor/react.production.min.js',

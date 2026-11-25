@@ -221,7 +221,8 @@ const canon = (v) => JSON.stringify(v, (k, x) => (x && typeof x === 'object' && 
   }));
   const r = c.calc();
   ok(!r.invalid, 'beam valid');
-  ok(r.warns.some((w) => w.t.includes('raised to flange thickness')), 'cope depth clamp warn');
+  // a cope shallower than the flange is no longer quietly deepened: it is a red item
+  ok(r.warns.some((w) => w.lvl === 'err' && w.t.includes('less than the') && w.t.includes('flange')) && c.blocked(r), 'cope depth less than the flange blocks the part');
   near(r.A.ct.dc, 0.38, 1e-9, 'cope depth clamped to tf');
   ok(r.holes.filter((h) => h.ok).length === 4, 'web 2x2 group ok', r.holes.length);
   const std = c.holeSize({ bolt: '3/4', type: 'std' });
@@ -340,7 +341,12 @@ const canon = (v) => JSON.stringify(v, (k, x) => (x && typeof x === 'object' && 
   ok(spTop.spec.azT === '0' && spTop.label.includes('0° FROM TOP'), 'band mid = 0 deg top', spTop.label);
   const sp90 = c.bandSpot(r, 60, r.wrap * 0.75);
   ok(sp90.spec.azT === '90', 'band 3/4 = 90 deg', sp90.spec.azT);
+  // a tap on the drawing never puts the FIRST hole in a part: holes start with the + Add a hole button
   c.bandPlace(r, 60, r.wrap * 0.5);
+  ok(!c.state.wantHoles && c.calc().holes.length === 0, 'a stray click on a part with no holes adds nothing');
+  c.renderVals().addHole(); c.renderVals().groups[0].del();     // holes switched on, the starter hole removed
+  c.setState({ wantHoles: true, groups: [] });
+  c.bandPlace(c.calc(), 60, r.wrap * 0.5);
   ok(c.state.wantHoles && c.state.groups.length === 1 && c.state.groups[0].xsT === '60', 'click adds exact-spot group', JSON.stringify(c.state.groups.map((g) => g.xsT)));
   const r2 = c.calc();
   c.bandPlace(r2, 60, r2.wrap * 0.5); // click the hole again removes it
@@ -361,7 +367,9 @@ const canon = (v) => JSON.stringify(v, (k, x) => (x && typeof x === 'object' && 
   ok(eB.roChip.startsWith('TRAVEL'), 'ro chip has travel', eB.roChip);
   eB.roApply();
   const travel = Math.sqrt(24 * 24 + 12 * 12 + 60 * 60);
-  near(c.parseIn(c.state.lenT), Math.round(travel * 16) / 16, 0.05, 'ro apply sets length');
+  // the form is end to end: the typed length is the travel plus the long point at each mitered end; centre to centre it is the travel
+  near(c.calc().L, travel, 1e-3, 'ro apply: centre-to-centre length is the travel');
+  ok(c.state.lenMode === 'oal' && Math.abs(c.parseIn(c.state.lenT) - c.calc().OAL) < 1e-4, 'ro apply: the length box is the overall length');
   ok(c.state.ends.A.mode === 'miter' && c.state.ends.B.mode === 'miter', 'ro apply sets both miters');
   near(parseFloat(c.state.ends.B.mrT) - parseFloat(c.state.ends.A.mrT), 180, 1e-9, 'ro twist 180 apart');
 }
@@ -817,7 +825,7 @@ function meshChecks(m) {
   ok(j.state.parts.length === 2, 'saving does not add a duplicate', j.state.parts.length);
   ok(j.state.parts[0].id === first.id && j.state.parts[0].code === first.code, 'saved part keeps its id and recall code');
   ok(j.state.parts[0].qty === 5 && Math.abs(j.state.parts[0].oal - 50) < 1e-9, 'saved part has the new length and quantity');
-  ok(j.state.editId === null && j.renderVals().addLbl === '+ Add to job list', 'editing ends after the save');
+  ok(j.state.editId === null && /^\+ Add \d+ \u00D7 .+ to job$/.test(j.renderVals().addLbl), 'editing ends after the save', j.renderVals().addLbl);
   j.renderVals().jobParts[1].load();
   j.addToJob(true);
   ok(j.state.parts.length === 3 && j.state.editId === null, 'Add as a new part makes a copy instead');

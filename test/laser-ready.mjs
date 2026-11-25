@@ -207,6 +207,19 @@ try {
   list.push(['4x4x1/4 tube, compound miter + side holes', async () => { const c = await freshApp(); c.pickFam('hss')(); c.setState({ lenT: '36' }); c.setState(end(c, 'A', { mode: 'ang', tvT: '30', tpT: '20' })); c.setState((st) => ({ wantHoles: true, groups: [{ ...st.groups[0], face: 'L', type: 'cust', diaT: '9/16', x0T: '8', nT: '2', pT: '3' }] })); return c; }]);
   list.push(['W12x26, top cope + web bolts', async () => { const c = await freshApp(); c.pickFam('beam')(); c.setState({ lenT: '60' }); c.setState(end(c, 'A', { wantCope: true, ct: true })); c.renderVals().recipes[0].go(); return c; }]);
   list.push(['L3x3x1/4, plan miter + 2 bolts', async () => { const c = await freshApp(); c.pickFam('angl')(); c.setState({ lenT: '24' }); c.setState(end(c, 'A', { mode: 'ang', tvT: '0', tpT: '-45' })); c.setState((st) => ({ wantHoles: true, groups: [{ ...st.groups[0], face: 'vleg', type: 'std', bolt: '3/4', gT: '1 3/4', refEnd: 'B', x0T: '1 1/2', nT: '2', pT: '3' }] })); return c; }]);
+  list.push(['6 in pipe saddled onto 6 in (same size, the steepest saddle) + a hole on top', async () => { const c = await freshApp({ lenT: '48' }); c.renderVals().endSteps[0].mSaddle(); hole(c, { x0T: '6', azT: '0' }); return c; }]);
+  list.push(['6 in pipe saddled onto 6 in + 45 miter + hole', async () => { const c = await freshApp({ lenT: '48' }); c.renderVals().endSteps[0].mSaddle(); c.setState(end(c, 'B', { mode: 'miter', maT: '45', mrT: '0' })); hole(c, { x0T: '6', azT: '0' }); return c; }]);
+  // the gate itself: the same pipe written WITHOUT the repair is caught by the file check the app runs before saving
+  {
+    const { edgeAgreement } = await import('../iges-check.js');
+    const c = await freshApp({ lenT: '24' }); hole(c, { azT: '120' });
+    const { K, shape } = occm.buildSolid(oc, c, c.calc());
+    const raw = K.done(K.mk('BRepBuilderAPI_NurbsConvert', shape, true)), w = K.mk('IGESControl_Writer', 'IN', 0);
+    K.call(w, 'AddShape', K.scale(raw, 25.4)); w.ComputeModel(); K.call(w, 'Write', '/raw.igs', false);
+    const bad = edgeAgreement(oc.FS.readFile('/raw.igs', { encoding: 'utf8' })), good = edgeAgreement(occm.writeIges(K, shape, 'x'));
+    ok(bad.worst > .05 && bad.curves > 0, 'file check: an unrepaired pipe-with-hole file is caught (its edge descriptions differ by more than 1/20 in)', bad.worst.toFixed(4));
+    ok(good.worst < 5e-4 && good.unreadable === 0 && good.curves === bad.curves, 'file check: the file the app writes passes, every edge readable', good.worst.toFixed(6) + ' / ' + good.unreadable);
+  }
   for (const [name, mk] of list) { let w; try { w = worstOf(await mk()); } catch (e) { w = 'threw: ' + (e && e.message ? e.message : e); } ok(typeof w === 'number' && w < 5e-4, 'laser file edges agree: ' + name, typeof w === 'number' ? w.toFixed(6) + ' in' : w); }
 } catch (e) { fail++; fails.push('edge agreement: threw ' + (e && e.stack ? e.stack : e)); }
 
