@@ -59,6 +59,7 @@
         <h3>Material</h3>
         <div class="fam">
           <button onClick="{{ pickPipe }}" style="{{ fbPipe }}"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="12" r="8.5"></circle><circle cx="12" cy="12" r="5" opacity="0.45"></circle></svg><span>Pipe</span></button>
+          <button onClick="{{ pickTube }}" style="{{ fbTube }}" title="Round tube by outside diameter and wall — handrail, mechanical tube"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="12" r="8.5"></circle><circle cx="12" cy="12" r="7" opacity="0.45"></circle></svg><span>Rd tube</span></button>
           <button onClick="{{ pickHss }}" style="{{ fbHss }}"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="4" y="4" width="16" height="16" rx="3.5"></rect><rect x="6.5" y="6.5" width="11" height="11" rx="2" opacity="0.45"></rect></svg><span>Sq / Rect</span></button>
           <button onClick="{{ pickBeam }}" style="{{ fbBeam }}"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M5 4.5H19M5 19.5H19M12 4.5V19.5"></path></svg><span>Beam</span></button>
           <button onClick="{{ pickChan }}" style="{{ fbChan }}"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M17 4.5H7V19.5H17"></path></svg><span>Channel</span></button>
@@ -71,6 +72,14 @@
             <label class="f"><span>Schedule</span><select data-sv="{{ psch }}" value="{{ psch }}" onChange="{{ onPsch }}"><sc-for list="{{ pipeSchedOpts }}" as="o" hint-placeholder-count="6"><option value="{{ o }}">{{ o }}</option></sc-for></select></label>
             <label class="f"><span>Grade</span><select data-sv="{{ mat }}" value="{{ mat }}" onChange="{{ onMat }}"><sc-for list="{{ matOpts }}" as="mo" hint-placeholder-count="4"><option value="{{ mo.id }}">{{ mo.label }}</option></sc-for></select></label>
           </div>
+        </sc-if>
+        <sc-if value="{{ isTube }}" hint-placeholder-val="{{ false }}">
+          <div class="gm">
+            <label class="f"><span>Outside diameter</span><input value="{{ todT }}" onChange="{{ onTod }}" placeholder="2 or 1 1/2"></label>
+            <label class="f"><span>Wall</span><input value="{{ twallT }}" onChange="{{ onTwall }}" placeholder=".120 or 1/8"></label>
+            <label class="f"><span>Grade</span><select data-sv="{{ mat }}" value="{{ mat }}" onChange="{{ onMat }}"><sc-for list="{{ matOpts }}" as="mo" hint-placeholder-count="4"><option value="{{ mo.id }}">{{ mo.label }}</option></sc-for></select></label>
+          </div>
+          <label class="f"><span>Common walls — pick one to fill the box</span><select value="" onChange="{{ onTwallPick }}"><option value="">Pick a wall…</option><sc-for list="{{ tubeWallOpts }}" as="tw" hint-placeholder-count="6"><option value="{{ tw.v }}">{{ tw.l }}</option></sc-for></select></label>
         </sc-if>
         <sc-if value="{{ isHss }}" hint-placeholder-val="{{ false }}">
           <div class="gm">
@@ -146,6 +155,7 @@
                 <sc-if value="{{ ec.isBeamFam }}" hint-placeholder-val="{{ false }}">
                   <button onClick="{{ ec.tgCope }}" style="{{ ec.copeS }}" title="Notch the flange so this end fits against another beam">Cope</button>
                 </sc-if>
+                <button onClick="{{ ec.tgBevel }}" style="{{ ec.bevS }}" title="Weld bevel on this end — the laser bevels 45° maximum">Bevel</button>
               </div>
             </div>
 
@@ -233,6 +243,22 @@
                   </details>
                 </div>
               </sc-if>
+            </sc-if>
+
+            <sc-if value="{{ ec.wantBevel }}" hint-placeholder-val="{{ false }}">
+              <div class="box">
+                <div class="g2">
+                  <label class="f"><span>Weld bevel ° (45 max)</span><input type="number" step="0.5" min="1" max="45" value="{{ ec.bvT }}" onChange="{{ ec.sBv }}"></label>
+                  <label class="f"><span>Land (root face)</span><input value="{{ ec.landT }}" onChange="{{ ec.sLand }}" placeholder="1/16"></label>
+                </div>
+                <sc-if value="{{ ec.isBeamFam }}" hint-placeholder-val="{{ false }}">
+                  <div class="g2">
+                    <label class="f"><span>Bevel opens toward</span><select data-sv="{{ ec.open2 }}" value="{{ ec.open2 }}" onChange="{{ ec.sOpen }}"><option value="TOP">Top</option><option value="BOTTOM">Bottom</option></select></label>
+                    <label class="f"><span>Bevel goes on</span><select data-sv="{{ ec.app }}" value="{{ ec.app }}" onChange="{{ ec.sApp }}"><option value="BOTH">Flanges and web</option><option value="FLANGES">Flanges only</option><option value="WEB">Web only</option></select></label>
+                  </div>
+                </sc-if>
+                <div class="hint">The bevel is written into the laser file name, the cut list and the ticket. The laser file itself is drawn square — the operator sets this bevel in TubesT.</div>
+              </div>
             </sc-if>
 
             <sc-if value="{{ ec.showMirror }}" hint-placeholder-val="{{ false }}"><button class="btn sm ghost" style="align-self:flex-start" onClick="{{ ec.mirror }}" title="Copy End A's whole setup onto End B">Make End B the same as End A</button></sc-if>
@@ -419,14 +445,20 @@
           <div class="row between editbar"><span>{{ editNote }}</span><button class="btn sm ghost" onClick="{{ cancelEdit }}" title="Keep what is on screen but stop editing the job-list part">Stop editing</button></div>
         </sc-if>
         <div class="row end">
-          <label class="f" style="width:104px;flex:none"><span>Part mark</span><input value="{{ mark }}" onChange="{{ onMark }}"></label>
-          <label class="f" style="width:64px;flex:none"><span>Qty</span><input type="number" min="1" value="{{ qty }}" onChange="{{ onQty }}"></label>
-          <button class="btn grow" style="height:36px" onClick="{{ addToJob }}" disabled="{{ invalid }}">{{ addLbl }}</button>
+          <label class="f" style="width:72px;flex:none"><span>Job #</span><input value="{{ job }}" onChange="{{ onJob }}" placeholder="2611"></label>
+          <label class="f" style="width:80px;flex:none"><span>Part mark</span><input value="{{ mark }}" onChange="{{ onMark }}"></label>
+          <label class="f" style="width:54px;flex:none"><span>Qty</span><input type="number" min="1" value="{{ qty }}" onChange="{{ onQty }}"></label>
+          <button class="btn grow" style="height:36px;padding:9px 8px" onClick="{{ addToJob }}" disabled="{{ addOff }}">{{ addLbl }}</button>
         </div>
         <sc-if value="{{ editing }}" hint-placeholder-val="{{ false }}">
           <button class="btn sm ghost" style="align-self:flex-end" onClick="{{ addAsNew }}" disabled="{{ invalid }}">Add as a new part instead</button>
         </sc-if>
-        <button class="btn primary two block" onClick="{{ dlIgs }}" disabled="{{ solidBusy }}">{{ igsLbl }}<small>this part — IGS file for TubesT</small></button>
+        <button class="btn primary two block" onClick="{{ dlIgs }}" disabled="{{ saveOff }}">{{ igsLbl }}<small>{{ igsSub }}</small></button>
+        <div class="row between">
+          <span class="hint grow">{{ fsLine }}</span>
+          <sc-if value="{{ fsCanPick }}" hint-placeholder-val="{{ true }}"><button class="btn sm" onClick="{{ linkFolder }}" title="Pick the OneDrive folder the laser reads from. Every laser file is then saved straight into it, sorted by job number.">{{ fsPickLbl }}</button></sc-if>
+        </div>
+        <sc-if value="{{ hasSaveMsg }}" hint-placeholder-val="{{ false }}"><div style="{{ saveMsgS }}">{{ saveMsg }}</div></sc-if>
      </div>
     </div>
 
@@ -465,6 +497,41 @@
           <span>B ▸ {{ endBSpec }}</span>
         </div>
       </div>
+      <sc-if value="{{ reviewOpen }}" hint-placeholder-val="{{ false }}">
+        <div class="modal">
+          <div class="card">
+            <div class="row between"><h2>{{ rvTitle }}</h2><button class="btn x" onClick="{{ rvBack }}">✕</button></div>
+            <sc-if value="{{ rvPart }}" hint-placeholder-val="{{ true }}">
+              <dl class="rv">
+                <dt>Mark</dt><dd>{{ rv.mark }}</dd>
+                <dt>Quantity</dt><dd>{{ rv.qty }}</dd>
+                <dt>Material</dt><dd>{{ rv.stock }}</dd>
+                <dt>Overall length</dt><dd>{{ rv.len }}</dd>
+                <sc-if value="{{ rvHasSp }}" hint-placeholder-val="{{ false }}"><dt>Short point</dt><dd>{{ rv.sp }}</dd></sc-if>
+                <dt>End A (left)</dt><dd>{{ rv.endA }}</dd>
+                <dt>End B (right)</dt><dd>{{ rv.endB }}</dd>
+                <dt>Holes</dt><dd>{{ rv.holes }}</dd>
+                <dt>Weight</dt><dd>{{ rv.wt }}</dd>
+                <dt>File</dt><dd>{{ rv.file }}</dd>
+              </dl>
+            </sc-if>
+            <sc-if value="{{ rvJob }}" hint-placeholder-val="{{ false }}">
+              <div class="rvlist">
+                <sc-for list="{{ rvRows }}" as="rr" hint-placeholder-count="3"><div class="row"><b>{{ rr.mark }}</b><span class="note">{{ rr.qty }}</span><span class="grow" style="{{ rr.s }}">{{ rr.txt }}</span></div></sc-for>
+              </div>
+            </sc-if>
+            <dl class="rv"><dt>Goes to</dt><dd>{{ rvDest }}</dd></dl>
+            <sc-if value="{{ rvHasOut }}" hint-placeholder-val="{{ false }}"><div class="issues"><b>Not everything can be saved</b><div>{{ rvOutTxt }}</div></div></sc-if>
+            <sc-if value="{{ rvHasCautions }}" hint-placeholder-val="{{ false }}"><div class="issues warn"><b>Check before cutting</b><sc-for list="{{ rvCautions }}" as="w" hint-placeholder-count="1"><div>{{ w.t }}</div></sc-for></div></sc-if>
+            <sc-if value="{{ rvBevel }}" hint-placeholder-val="{{ false }}"><div class="issues warn"><b>Weld bevel</b><div>The laser file is drawn square. The bevel is in the file name — the operator has to set it in TubesT.</div></div></sc-if>
+            <sc-if value="{{ rvNoJob }}" hint-placeholder-val="{{ false }}"><div class="hint">No job number typed — the file goes in the NO-JOB folder. Type the Job # first to keep jobs apart.</div></sc-if>
+            <div class="g2">
+              <button class="btn" onClick="{{ rvBack }}">Go back and change it</button>
+              <button class="btn primary" onClick="{{ rvGo }}" disabled="{{ rvGoOff }}">{{ rvGoLbl }}</button>
+            </div>
+          </div>
+        </div>
+      </sc-if>
       <sc-if value="{{ helpOpen }}" hint-placeholder-val="{{ false }}">
         <div class="modal">
           <div class="card">
@@ -474,7 +541,7 @@
               <li><b>Cut length</b> — type it the way you read a tape: <span class="mono">12'-6 3/8</span>.</li>
               <li><b>Ends</b> — each end is square unless you pick something else.</li>
               <li><b>Holes</b> — tap a starting pattern, then change the numbers.</li>
-              <li><b>Download</b> the file for the laser, or <b>Add to job list</b> and download the whole job at once.</li>
+              <li><b>Save for the laser</b> — read the check card, then save. Or <b>Add to job list</b> and save the whole job at once.</li>
             </ol>
             <dl>
               <dt>End A / End B</dt><dd>A is the left end in the pictures, B is the right. Tap End A or End B on the 3D view to zoom in on that end.</dd>
@@ -482,7 +549,9 @@
               <dt>Cut length</dt><dd>Always end to end: the longest point of one end to the longest point of the other. Hole distances start from those same ends.</dd>
               <dt>Degrees around</dt><dd>0° is the top of the pipe, 90° is the right side seen from End A. 180° is the seam.</dd>
               <dt>Gauge</dt><dd>Hole-line spacing across a flange, or from an angle's heel.</dd>
-              <dt>Job list</dt><dd>Open a part to change it and save over it. One click downloads every part for the laser.</dd>
+              <dt>Job list</dt><dd>Open a part to change it and save over it. One button saves every part for the laser.</dd>
+              <dt>Laser folder</dt><dd>Choose the OneDrive folder the laser reads from once. After that every laser file is saved straight into it, in a folder for its job number.</dd>
+              <dt>Red list</dt><dd>Anything in the red list has to be fixed before a laser file can be saved. Nothing is guessed for you.</dd>
             </dl>
             <button class="btn primary block" onClick="{{ closeHelp }}">Got it</button>
           </div>
@@ -535,7 +604,7 @@
           <div><span>Sticks to pull</span><span>{{ roSticks }}</span></div>
           <div><span>Weight</span><span>{{ roWt }}</span></div>
         </div>
-        <button class="btn primary two block" onClick="{{ dlJobFiles }}" disabled="{{ jobBusy }}">{{ jobFilesLbl }}<small>one IGS per part, quantity in the file name</small></button>
+        <button class="btn primary two block" onClick="{{ dlJobFiles }}" disabled="{{ jobBusy }}">{{ jobFilesLbl }}<small>{{ jobFilesSub }}</small></button>
         <div class="g2">
           <button class="btn" onClick="{{ dlJobTicket }}">Print job ticket</button>
           <button class="btn" onClick="{{ dlJobCsv }}">Cut list — CSV</button>
@@ -582,11 +651,11 @@
               </div>
             </details>
             <details>
-              <summary>Auto-save files to a folder</summary>
+              <summary>Laser folder</summary>
               <div class="d">
                 <sc-if value="{{ fsIdle }}" hint-placeholder-val="{{ true }}">
-                  <button class="btn block" onClick="{{ linkFolder }}">Choose a folder or drive</button>
-                  <div class="hint">Every file you download is also copied there, sorted by job number.</div>
+                  <button class="btn block" onClick="{{ linkFolder }}">Choose laser folder</button>
+                  <div class="hint">Pick the OneDrive folder the laser reads from. Laser files are then saved straight into it, sorted by job number.</div>
                 </sc-if>
                 <sc-if value="{{ fsOk }}" hint-placeholder-val="{{ false }}">
                   <div class="row between"><span class="note">Linked ▸ {{ fsName }} ✓</span><button class="btn sm x" onClick="{{ unlinkFolder }}">✕</button></div>

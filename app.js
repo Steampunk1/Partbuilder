@@ -13,6 +13,7 @@ class Component extends DCLogic {
     hovL: '', hovGx: 0, hovGy: 0,
     archive: [], archQ: '', archMsg: '',
     fsName: '', fsPerm: '',
+    review: null, saveMsg: '', saveOk: true,
     lenMode: 'oal', dxfRef: false,
     hdrB: { nps: '10', sch: '40', seat: 'on', hid: 1, list: [] }
   });
@@ -197,7 +198,7 @@ class Component extends DCLogic {
    *  a0 for End A, b1 for End B. Overall parts pass the long points (the real
    *  ends of the piece); older center-to-center parts pass the work points. */
   datum(aMin, bMax, L) { return this.state.lenMode === 'oal' ? [aMin, bMax] : [0, L]; }
-  holeXs(g, L, a0, b1) {
+  holeXs(g, L, a0, b1, uncapped) {
     if (a0 == null) a0 = 0;
     if (b1 == null) b1 = L;
     const xs = [];
@@ -215,7 +216,9 @@ class Component extends DCLogic {
     if (g.both && !list) {
       for (const x of xs.slice()) { const m = a0 + b1 - x; if (!xs.some(v => Math.abs(v - m) < 1 / 32)) xs.push(m); }
     }
-    return xs.slice(0, 60);
+    // 60 per set is the cap; inputErrs() reads the uncapped count and blocks
+    // the part rather than let the extra holes vanish.
+    return uncapped ? xs : xs.slice(0, 60);
   }
   /** Inches → parseable shop token snapped to 1/16 ("15 1/2", "3", "-1 3/4"). */
   fmtTok(x) {
@@ -271,7 +274,7 @@ class Component extends DCLogic {
 
   endParsed(e, sec) {
     const kind = sec.kind;
-    const E = { mode: e.mode, bv: e.wantBevel ? Math.max(0, Math.min(60, parseFloat(e.bvT) || 0)) : 0, land: this.parseIn(e.landT) || 0, open: e.open, app: e.app };
+    const E = { mode: e.mode, bv: e.wantBevel ? Math.max(0, Math.min(Component.BEVEL_MAX, parseFloat(e.bvT) || 0)) : 0, land: this.parseIn(e.landT) || 0, open: e.open, app: e.app };
     if (kind === 'round') {
       if (e.mode === 'miter') {
         E.ma = Math.max(-75, Math.min(75, parseFloat(e.maT) || 0));
@@ -321,6 +324,147 @@ class Component extends DCLogic {
     return s.join(' \u00B7 ');
   }
 
+  // ---------- typed-input check ----------
+  /** The shop laser's bevel head tilts this far and no further. */
+  static BEVEL_MAX = 45;
+  /** Whole-string number: "22.5" reads; "22-1/2", "4 5" and "" do not. */
+  numStrict(s) { s = String(s == null ? '' : s).trim(); return /^[-+]?(\d+\.?\d*|\.\d+)$/.test(s) ? parseFloat(s) : null; }
+  /** Every box the part on the form actually uses must read exactly as typed.
+   *  The geometry code falls back to a default when a box does not read, so the
+   *  picture still draws; this list turns each of those fallbacks (and each
+   *  silent clamp) into a red "fix before cutting" item, so a typo can never
+   *  reach the laser file as a valid-looking part. Returns message strings. */
+  inputErrs(c) {
+    const st = this.state, f = st.family, sec = (c && c.sec) || {}, out = [];
+    const inch = (s) => this.parseIn(s), num = (s) => this.numStrict(s);
+    const pos = (s) => { const v = inch(s); return v != null && v > 0 ? v : null; };
+    const txt = (s) => String(s == null ? '' : s).trim();
+    const cant = (what, s) => out.push(txt(s) === '' ? what + ' is blank.' : what + ': can’t read “' + txt(s) + '”.');
+    const whole = (s, lo, hi) => { const v = num(s); return v != null && v === Math.round(v) && v >= lo ? (v > hi ? Infinity : v) : null; };
+    const round = f === 'pipe' || f === 'tube', plate = f === 'beam' || f === 'chan';
+
+    // --- the section
+    if (f === 'tube') {
+      const od = pos(st.todT), w = pos(st.twallT);
+      if (od == null) cant('Tube OD', st.todT);
+      if (w == null) cant('Tube wall', st.twallT);
+      if (od != null && w != null && w > od / 2 - .01) out.push('Tube wall ' + txt(st.twallT) + '″ is too thick for a ' + txt(st.todT) + '″ OD tube.');
+    } else if (f === 'hss') {
+      const p = String(st.hsize).split('x'), H = this.frIn(p[0]), B = p.length > 1 ? this.frIn(p[1]) : H, t = pos(st.hwallT);
+      if (!(H > 0) || !(B > 0)) cant('Tube size', st.hsize);
+      if (t == null) cant('Tube wall', st.hwallT);
+      else if (H > 0 && B > 0 && t > Math.min(B, H) / 2.5 + 1e-9) out.push(txt(st.hwallT) + '″ wall is not made in ' + st.hsize + ' tube — pick a thinner wall.');
+    } else if (f === 'angl') {
+      const p = String(st.asize).split('x'), a = this.frIn(p[0]), b = p.length > 1 ? this.frIn(p[1]) : a, t = pos(st.athkT);
+      if (!(a > 0) || !(b > 0)) cant('Angle size', st.asize);
+      if (t == null) cant('Angle thickness', st.athkT);
+      else if (a > 0 && b > 0 && t > Math.min(a, b) / 2 + 1e-9) out.push(txt(st.athkT) + '″ thick is not made in ' + st.asize + ' angle — pick a thinner one.');
+    } else if (f === 'beam' && st.bser === 'CUST') {
+      const d = pos(st.cdT), bf = pos(st.cbT), tf = pos(st.ctfT), tw = pos(st.ctwT);
+      if (d == null) cant('Custom beam depth', st.cdT);
+      if (bf == null) cant('Custom beam flange width', st.cbT);
+      if (tf == null) cant('Custom beam flange thickness', st.ctfT);
+      if (tw == null) cant('Custom beam web thickness', st.ctwT);
+      if (!(this.frIn(st.cwT) > 0)) cant('Custom beam lb/ft', st.cwT);
+      if (tw != null && bf != null && tw >= bf) out.push('Custom beam: the web is thicker than the flange is wide.');
+    }
+
+    // --- the ends
+    for (const id of ['A', 'B']) {
+      const e = Object.assign(Component.defEnd(), st.ends[id]), nm = 'End ' + id;
+      if (round && e.mode === 'miter') {
+        const ma = num(e.maT);
+        if (ma == null) cant(nm + ' miter angle', e.maT);
+        else if (Math.abs(ma) > 75) out.push(nm + ': miter ' + ma + '° is past the 75° limit.');
+        if (num(e.mrT) == null) cant(nm + ' miter turn', e.mrT);
+      }
+      if (round && e.mode === 'saddle') {
+        const a = num(e.sdAT);
+        if (a == null) cant(nm + ' saddle angle', e.sdAT);
+        else if (a < 20 || a > 90) out.push(nm + ': saddle angle ' + a + '° — it must be 20° to 90°.');
+        if (num(e.sdRT) == null) cant(nm + ' saddle roll', e.sdRT);
+        if (e.sdHT === 'cust') {
+          const hod = pos(e.sdHodT), hw = pos(e.sdHwT);
+          if (hw == null) cant(nm + ' header wall', e.sdHwT);
+          else if (hod != null && hw > hod / 2 - .01) out.push(nm + ': header wall ' + txt(e.sdHwT) + '″ is too thick for its OD.');
+        }
+      }
+      if (!round && e.mode === 'ang') {
+        for (const [k, lbl] of [['tvT', 'angle seen from the side'], ['tpT', 'angle seen from above']]) {
+          const v = num(e[k]);
+          if (v == null) cant(nm + ' ' + lbl, e[k]);
+          else if (Math.abs(v) > 75) out.push(nm + ': ' + lbl + ' ' + v + '° is past the 75° limit.');
+        }
+      }
+      if (plate && e.wantCope) {
+        for (const [on, keys, lbl] of [[e.ct, ['tcT', 'tdT', 'trT'], 'top cope'], [e.cb, ['bcT', 'bdT', 'brT'], 'bottom cope']]) {
+          if (!on) continue;
+          const cl = pos(e[keys[0]]), dc = pos(e[keys[1]]), r = pos(e[keys[2]]);
+          if (cl == null) cant(nm + ' ' + lbl + ' length', e[keys[0]]);
+          if (dc == null) cant(nm + ' ' + lbl + ' depth', e[keys[1]]);
+          if (r == null) cant(nm + ' ' + lbl + ' radius', e[keys[2]]);
+          else if (cl != null && dc != null && r > Math.min(cl, Math.max(dc, sec.tf || 0)) + 1e-9) out.push(nm + ': ' + lbl + ' radius ' + this.fmtIn(r) + ' is bigger than the cope itself.');
+        }
+        if (e.rat && e.rat !== 'NONE') {
+          const rr = pos(e.rrT);
+          if (rr == null) cant(nm + ' access hole radius', e.rrT);
+          else if (sec.d && rr * 2 > sec.d / 2 - sec.tf + 1e-9) out.push(nm + ': access hole radius ' + this.fmtIn(rr) + ' is too big for this web.');
+        }
+      }
+      if (e.wantBevel) {
+        const bv = num(e.bvT), land = inch(e.landT);
+        if (bv == null) cant(nm + ' bevel angle', e.bvT);
+        else if (bv <= 0) out.push(nm + ': bevel angle must be more than 0°.');
+        else if (bv > Component.BEVEL_MAX) out.push(nm + ': bevel ' + bv + '° — the laser bevels ' + Component.BEVEL_MAX + '° maximum.');
+        if (land == null || land < 0) cant(nm + ' bevel land', e.landT);
+      }
+    }
+
+    // --- the holes
+    if (st.wantHoles) st.groups.forEach((g0, i) => {
+      const g = Object.assign(Component.defGroup(g0.id, f), g0), nm = st.groups.length > 1 ? 'Hole set ' + (i + 1) : 'Hole';
+      const list = txt(g.xsT);
+      if (list) {
+        const toks = list.split(/[,;]+/).map(t => t.trim()).filter(Boolean);
+        if (!toks.length) cant(nm + ' exact distances', list);
+        for (const t of toks) if (inch(t) == null) out.push(nm + ': can’t read “' + t + '” in the exact distances — put a comma between each one, like 3, 9, 15 1/2.');
+      } else {
+        if (inch(g.x0T) == null) cant(nm + ' distance from the end', g.x0T);
+        const n = whole(g.nT, 1, 60);
+        if (n == null) cant(nm + ' “how many”', g.nT);
+        else if (n === Infinity) out.push(nm + ': more than 60 along the length — that is the most one set holds. Split it into two sets.');
+        else if (n > 1) { const p = inch(g.pT); if (p == null) cant(nm + ' spacing', g.pT); else if (p <= 0) out.push(nm + ': spacing must be more than 0.'); }
+      }
+      if (c && c.L > 0 && this.holeXs(g, c.L, c.x0, c.x1, true).length > 60) out.push(nm + ': more than 60 along the length — that is the most one set holds. Split it into two sets.');
+      const slotH = f === 'hss' && g.type === 'slot';
+      if (round ? g.type === 'cust' : (f === 'hss' || g.type === 'cust')) {
+        const d = pos(g.diaT);
+        if (d == null) cant(nm + (slotH ? ' slot width' : ' diameter'), g.diaT);
+        else if (slotH) { const sl = pos(g.sllT); if (sl == null) cant(nm + ' slot length', g.sllT); else if (sl < d - 1e-9) out.push(nm + ': slot length ' + this.fmtIn(sl) + ' is shorter than its width ' + this.fmtIn(d) + '.'); }
+      }
+      if (round) {
+        if (num(g.azT) == null) cant(nm + ' degrees around', g.azT);
+        const an = whole(g.aznT, 1, 24);
+        if (an == null) cant(nm + ' “how many around”', g.aznT);
+        else if (an === Infinity) out.push(nm + ': more than 24 around — that is the most one set holds.');
+        else if (an > 1) { const ap = num(g.azpT); if (ap == null) cant(nm + ' degrees apart', g.azpT); else if (ap === 0) out.push(nm + ': degrees apart must not be 0.'); }
+      } else if (f === 'hss') {
+        if (inch(g.offT) == null) cant(nm + ' offset from the face center', g.offT);
+      } else if (f === 'angl') {
+        if (inch(g.gT) == null) cant(nm + ' gauge from the heel', g.gT);
+      } else if (g.face === 'web') {
+        const ny = whole(g.nyT, 1, 30);
+        if (ny == null) cant(nm + ' bolts down the web', g.nyT);
+        else if (ny === Infinity) out.push(nm + ': more than 30 down the web — that is the most one set holds.');
+        else if (ny > 1) { const py = inch(g.pyT); if (py == null) cant(nm + ' spacing down the web', g.pyT); else if (py <= 0) out.push(nm + ': spacing down the web must be more than 0.'); }
+        if (!g.autoY && inch(g.y0T) == null) cant(nm + ' first row distance', g.y0T);
+      } else if (!(g.autoG && this.stdGaugeFor(sec, f, 'tf') != null)) {
+        if (inch(g.gT) == null) cant(nm + ' gauge', g.gT);
+      }
+    });
+    return out;
+  }
+
   calc() {
     const st = this.state;
     const key = JSON.stringify([st.family, st.pnps, st.psch, st.todT, st.twallT, st.hsize, st.hwallT, st.bser, st.bsize, st.cser, st.csize, st.asize, st.athkT, st.cdT, st.cbT, st.ctfT, st.ctwT, st.cwT, st.lenT, st.lenMode, st.ends, st.groups, st.wantHoles, st.mat, this.props.stations, this.props.holeSegs, !!this.D]);
@@ -346,8 +490,14 @@ class Component extends DCLogic {
     }
     c.key = key; c.sec = sec;
     { const d2 = (!c.invalid && c.aMin != null && c.bMax != null) ? this.datum(c.aMin, c.bMax, c.L) : [0, c.L || 0]; c.x0 = d2[0]; c.x1 = d2[1]; }
+    if (this.D) for (const t of this.inputErrs(c)) (c.warns = c.warns || []).push({ lvl: 'err', t });
+    // Red items first and never crowded out by cautions: one dropped red item
+    // would let a part with a known fault through to the laser.
     const dup = {};
-    c.warns = (c.warns || []).filter(w => { const k = w.lvl + w.t; if (dup[k]) return false; dup[k] = 1; return true; }).slice(0, 8);
+    const all = (c.warns || []).filter(w => { const k = w.lvl + w.t; if (dup[k]) return false; dup[k] = 1; return true; });
+    const errs = all.filter(w => w.lvl === 'err'), rest = all.filter(w => w.lvl !== 'err');
+    c.errCount = errs.length;
+    c.warns = errs.slice(0, 8).concat(rest.slice(0, Math.max(0, 8 - errs.length)));
     if (!c.paths) c.paths = { vb: '0 0 100 10', gridP: '', refP: '', wpP: '', outAP: '', outBP: '', outCP: '', holesP: '', lbls: [], sw: .2, swThin: .1, fs: 2, dash: '1 1' };
     this._c = c;
     return c;
@@ -1523,21 +1673,58 @@ class Component extends DCLogic {
     try { const p = await h.requestPermission({ mode: 'readwrite' }); this.setState({ fsPerm: p, archMsg: p === 'granted' ? '"' + h.name + '" reconnected ✓' : 'Folder access declined' }); if (p === 'granted') this._fsBackup(); } catch (e) {}
   }
   _fsUnlink() { this._fsDir = null; this._fsSaveHandle(null); this.setState({ fsName: '', fsPerm: '', archMsg: 'Folder unlinked' }); }
+  _jobDirName() { return 'JOB_' + (this.state.job || 'NO-JOB').replace(/[^\w.-]+/g, '_'); }
+  /** Writes one file into the linked folder. Returns where it went (a label
+   *  such as "Laser › JOB_2611"), or false if it could not be written or the
+   *  file read back from disk is not the size that was sent. */
   async _fsWrite(name, text, atRoot) {
     const h = this._fsDir;
     if (!h || this.state.fsPerm !== 'granted') return false;
     try {
-      let dir = h;
-      if (!atRoot) {
-        const job = (this.state.job || 'NO-JOB').replace(/[^\w.-]+/g, '_');
-        dir = await h.getDirectoryHandle('JOB_' + job, { create: true });
-      }
+      let dir = h, sub = '';
+      if (!atRoot) { sub = this._jobDirName(); dir = await h.getDirectoryHandle(sub, { create: true }); }
       const fh = await dir.getFileHandle(name, { create: true });
       const w = await fh.createWritable();
       await w.write(text);
       await w.close();
-      return true;
+      if (typeof text === 'string' && typeof fh.getFile === 'function') {
+        const back = await fh.getFile();
+        if (back.size !== new TextEncoder().encode(text).length) return false;
+      }
+      return h.name + (sub ? ' \u203A ' + sub : '');
     } catch (e) { return false; }
+  }
+  /** Laser files already sitting in this job's folder that are NOT in `keep`.
+   *  An older revision left behind is a part waiting to be cut wrong. With
+   *  `marks`, only files that belong to those part marks are looked at. */
+  async _fsStale(keep, marks) {
+    const h = this._fsDir, out = [];
+    if (!h || this.state.fsPerm !== 'granted') return out;
+    try {
+      const dir = await h.getDirectoryHandle(this._jobDirName(), { create: false });
+      for await (const [nm, ent] of dir.entries()) {
+        if (ent.kind !== 'file' || !/\.igs$/i.test(nm) || keep.includes(nm)) continue;
+        if (marks && !marks.some(m => nm.startsWith(m + '_'))) continue;
+        out.push(nm);
+      }
+    } catch (e) {}
+    return out.sort();
+  }
+  async _fsRemove(names) {
+    let n = 0;
+    try {
+      const dir = await this._fsDir.getDirectoryHandle(this._jobDirName(), { create: false });
+      for (const nm of names) { try { await dir.removeEntry(nm); n++; } catch (e) {} }
+    } catch (e) {}
+    return n;
+  }
+  /** Hand a finished laser file over: into the linked folder when there is one,
+   *  otherwise the browser's download. -> { to: 'folder', where } | { to: 'download' } */
+  async _deliver(name, data, mime) {
+    const where = await this._fsWrite(name, data);
+    if (where) return { to: 'folder', where };
+    this._download(data, name, mime, true);
+    return { to: 'download' };
   }
   _fsBackup() {
     clearTimeout(this._fsbt);
@@ -1672,7 +1859,32 @@ class Component extends DCLogic {
   }
   /** True while the part has anything marked "fix before cutting". A hole the
    *  app had to skip is a hole missing from the part, so nothing is exported. */
-  blocked(c) { return !!(c.invalid || (c.warns || []).some(w => w.lvl === 'err')); }
+  blocked(c) { return !!(c.invalid || c.errCount > 0 || (c.warns || []).some(w => w.lvl === 'err')); }
+  /** Name of the laser file, less the quantity: mark, section, grade and the
+   *  true overall length, plus any weld bevel the operator has to set. The
+   *  operator reads this before opening the file, so it has to be enough to
+   *  pull the right stock. Letters, digits, dot, dash and underscore only. */
+  laserBase() {
+    const st = this.state, c = this.calc();
+    const clean = (v) => String(v).replace(/[^\w.-]+/g, '-').replace(/^[-.]+|[-.]+$/g, '') || 'x';
+    const len = c.L ? +((c.OAL || c.L).toFixed(3)) : 0;
+    const bev = ['A', 'B'].filter(k => c[k] && c[k].bv > 0).map(k => k + c[k].bv);
+    return [clean(st.mark || 'part'), clean(c.sec.label), clean(this.matRec().id), len + 'in'].join('_') + (bev.length ? '_BEVEL-' + clean(bev.join('-')) : '');
+  }
+  laserName(qty) { return this.laserBase() + ' - QTY ' + qty + '.igs'; }
+  /** What is wrong with the part mark, or '' — a blank or repeated mark is how
+   *  two different parts end up as one file name on the laser. */
+  markIssue() {
+    const st = this.state, m = String(st.mark || '').trim();
+    if (!m || m === '-') return 'Give this part a mark (like P-1) \u2014 it names the laser file.';
+    const twin = st.parts.find(p => p.id !== st.editId && String(p.mark).trim().toLowerCase() === m.toLowerCase());
+    if (twin) {
+      const b = /^(.*?)(\d+)$/.exec(m); let free = '';
+      if (b) { let n = parseInt(b[2], 10); const has = (k) => st.parts.some(p => String(p.mark).trim().toLowerCase() === (b[1] + k).toLowerCase()); while (has(n)) n++; free = ' Next free: ' + b[1] + n + '.'; }
+      return 'Mark ' + m + ' is already in the job list \u2014 two parts cannot share a mark.' + free;
+    }
+    return '';
+  }
   /** One checked true solid of the part now on the form -> { name, text }.
    *  Throws (and writes nothing) if the kernel's own checks do not pass. */
   _solidFile(oc, m, kind) {
@@ -1684,7 +1896,7 @@ class Component extends DCLogic {
     const want = r.LP || r.OAL || r.L, got = info.bbox[0][1] - info.bbox[0][0];
     if (Math.abs(got - want) > .01) throw new Error('The solid came out ' + got.toFixed(3) + '″ long, expected ' + want.toFixed(3) + '″.');
     const name = this.fileBase();
-    return { name, text: kind === 'igs' ? m.writeIges(K, shape, name) : m.writeStep(K, shape, name) };
+    return { name, laser: this.laserBase(), text: kind === 'igs' ? m.writeIges(K, shape, name) : m.writeStep(K, shape, name) };
   }
   /** True-solid export for TubesT: kind 'igs' or 'step'. The solid is checked by the engine before any file is handed over. */
   async dlSolid(kind) {
@@ -1694,12 +1906,78 @@ class Component extends DCLogic {
     try {
       const { oc, m } = await this._occ();
       const f = this._solidFile(oc, m, kind);
-      if (kind === 'igs') this._download(f.text, f.name + ' - SOLID.igs', 'model/iges');
-      else this._download(f.text, f.name + ' - SOLID.step', 'application/step');
+      if (kind === 'igs') {
+        const name = f.laser + ' - QTY ' + this.state.qty + '.igs';
+        const r = await this._deliver(name, f.text, 'model/iges');
+        await this._saved([name], r, [name.split('_')[0]]);
+      } else this._download(f.text, f.name + ' - SOLID.step', 'application/step');
     } catch (e) {
       this._occP = null;                                  // an engine error can leave it unusable - reload it next time
+      this.setState({ saveOk: false, saveMsg: 'No file was written.' });
       alert('No file was written.\n\n' + (e && e.message ? e.message : e) + '\n\nNothing was downloaded. If this keeps happening, reload the page and try again.');
     } finally { this.setState({ solidBusy: '' }); }
+  }
+  /** After a laser save: say plainly where the files are, and if this job's
+   *  folder still holds older laser files that were not just written, offer to
+   *  take them out so nobody cuts a superseded part. */
+  async _saved(names, r, marks) {
+    const n = names.length, what = n === 1 ? names[0] : n + ' laser files';
+    if (r.to !== 'folder') { this.setState({ saveOk: true, saveMsg: '\u2713 ' + (r.zip ? r.zip + ' (' + what + ' + cut list)' : what) + ' \u2014 in your Downloads folder. ' + (r.zip ? 'Unzip it into' : 'Move it to') + ' the laser folder.' }); return; }
+    let msg = '\u2713 Saved ' + what + ' \u2192 ' + r.where;
+    const stale = await this._fsStale(names, marks);
+    if (stale.length && confirm('Older laser files are still in ' + r.where + ':\n\n' + stale.join('\n') + '\n\nThey are not what you just saved. Remove them so nobody cuts an old part?\n\nOK = remove them    Cancel = leave them')) {
+      const gone = await this._fsRemove(stale);
+      msg += ' \u00B7 ' + gone + ' older file' + (gone === 1 ? '' : 's') + ' removed';
+    } else if (stale.length) msg += ' \u00B7 ' + stale.length + ' older file' + (stale.length === 1 ? '' : 's') + ' left in the folder';
+    this.setState({ saveOk: true, saveMsg: msg });
+  }
+  /** Ask for the linked folder again if the browser dropped the permission
+   *  (it does after a restart). Must run straight from the click. */
+  async _fsEnsure() {
+    const h = this._fsDir;
+    if (!h || this.state.fsPerm === 'granted') return;
+    try { const p = await h.requestPermission({ mode: 'readwrite' }); this.setState({ fsPerm: p }); } catch (e) {}
+  }
+  /** Everything the review card shows before a laser save: read it back to
+   *  the person once, in plain words, in one place. kind: 'part' | 'job'. */
+  reviewInfo(kind) {
+    const st = this.state;
+    const dest = this._fsDir && st.fsName ? st.fsName + ' \u203A ' + this._jobDirName() : 'your Downloads folder';
+    const line = () => {
+      const c = this.calc(), by = {};
+      for (const h of c.holes) if (h.ok) { const k = h.slotL ? 'slot ' + this.fr16(h.dia) + '\u00D7' + this.fmtIn(h.slotL) : '\u00D8' + this.fr16(h.dia); by[k] = (by[k] || 0) + 1; }
+      const errs = (c.warns || []).filter(w => w.lvl === 'err').map(w => w.t);
+      return {
+        bad: this.blocked(c), why: errs[0] || (c.invalid ? 'it has an error' : ''),
+        stock: this.famLabel() + ' \u00B7 ' + c.sec.label + ' \u00B7 ' + this.matRec().label,
+        len: this.fmtFtIn(c.OAL || c.L) + '  (' + (c.OAL || c.L || 0).toFixed(3) + '\u2033)',
+        sp: !c.invalid && Math.abs(c.LP - c.SP) > 1 / 64 ? this.fmtFtIn(c.SP) : '',
+        endA: c.A ? this.endSpecText(c.A, c.sec) : '\u2014', endB: c.B ? this.endSpecText(c.B, c.sec) : '\u2014',
+        holes: Object.entries(by).map(([k, v]) => v + ' \u00D7 ' + k).join(', ') || 'None',
+        wt: Math.round(c.wt) + ' lb each',
+        bevel: !!((c.A && c.A.bv) || (c.B && c.B.bv)),
+        cautions: (c.warns || []).filter(w => w.lvl !== 'err' && !/ONE wall/.test(w.t)).map(w => w.t),
+        base: this.blocked(c) ? '' : this.laserBase()
+      };
+    };
+    if (kind === 'part') {
+      const p = line();
+      return { kind, dest, noJob: !st.job, one: Object.assign(p, { mark: st.mark, qty: st.qty, file: p.base + ' - QTY ' + st.qty + '.igs' }), rows: [], cautions: p.cautions, bevel: p.bevel, out: 0, n: 1 };
+    }
+    const rows = st.parts.map(pt => { let p; try { p = this._withPart(pt, line); } catch (e) { p = { bad: true, why: 'its saved setup could not be read', stock: pt.desc, len: pt.lenT2, cautions: [] }; } return Object.assign(p, { mark: pt.mark, qty: pt.qty }); });
+    return { kind, dest, noJob: !st.job, one: null, rows, cautions: [], bevel: rows.some(r => r.bevel), out: rows.filter(r => r.bad).length, n: rows.filter(r => !r.bad).length };
+  }
+  askSave(kind) {
+    if (this.state.solidBusy || this.state.jobBusy) return;
+    if (kind === 'job' && !this.state.parts.length) { alert('No parts in the job yet.'); return; }
+    this.setState({ review: kind, saveMsg: '' });
+  }
+  async confirmSave() {
+    const kind = this.state.review;
+    if (!kind) return;
+    await this._fsEnsure();                                 // first thing in the click, while the browser still allows the prompt
+    this.setState({ review: null });
+    if (kind === 'job') await this.dlJobFiles(); else await this.dlSolid('igs');
   }
   /** A saved setup on its way into the form. A part whose ends are square
    *  measures the same either way, so it becomes an overall part. Only an older
@@ -1712,7 +1990,6 @@ class Component extends DCLogic {
     try { const r = this.calc(); same = !r.invalid && r.aMin != null && Math.abs(r.aMin) < 1e-9 && Math.abs(r.bMax - r.L) < 1e-9; } catch (e) { same = false; } finally { this.state = saved; this._c = savedC; }
     const out = Object.assign({}, cfg, { heat: '' });
     if (same) out.lenMode = 'oal';
-    if (out.ends) out.ends = { A: Object.assign({}, out.ends.A, { wantBevel: false }), B: Object.assign({}, out.ends.B, { wantBevel: false }) };
     return out;
   }
   /** Run fn with a job-list part loaded as the form state, then put the form back. Synchronous. */
@@ -1748,19 +2025,28 @@ class Component extends DCLogic {
         await new Promise(r => setTimeout(r, 20));
         try {
           const f = this._withPart(pt, () => this._solidFile(eng.oc, eng.m, 'igs'));
-          const name = this.jobFileName(pt, f.name, used);
+          const name = this.jobFileName(pt, f.laser, used);
           files.push({ name, data: f.text });
-          this._fsWrite(name, f.text);
         } catch (e) {
           skipped.push(pt.mark + ' — ' + (e && e.message ? e.message : e));
           this._occP = null; eng = await this._occ();     // an engine error can leave it unusable
         }
       }
       if (files.length) {
+        const igs = files.map(f => f.name);
         const csv = this._jobCsv();
         if (csv) files.push({ name: 'cut list.csv', data: csv });
-        const job = (st0.job || '').replace(/[^\w.-]+/g, '-');
-        this._download(this._zip(files), (job ? 'JOB-' + job : 'job') + ' - laser files.zip', 'application/zip', true);
+        // Linked folder: every file goes straight in, each one read back. If any
+        // one of them will not write, fall back to the zip so nothing is half-saved.
+        let where = '';
+        for (const f of files) { const w = await this._fsWrite(f.name, f.data); if (!w) { where = ''; break; } where = w; }
+        if (where) await this._saved(igs, { to: 'folder', where });
+        else {
+          const job = (st0.job || '').replace(/[^\w.-]+/g, '-');
+          const zipName = (job ? 'JOB-' + job : 'job') + ' - laser files.zip';
+          this._download(this._zip(files), zipName, 'application/zip', true);
+          await this._saved(igs, { to: 'download', zip: zipName });
+        }
       }
       if (skipped.length) alert((files.length ? 'These parts were left out of the zip:' : 'No files were written.') + '\n\n' + skipped.join('\n') + '\n\nOpen each one from the job list and fix what is shown in red.');
     } catch (e) {
@@ -2408,7 +2694,9 @@ class Component extends DCLogic {
         angNoS: pill(e.mode !== 'ang'), angYesS: pill(e.mode === 'ang'),
         angled: e.mode === 'ang',
         tpT: e.tpT, tvT: e.tvT, sTp: setEnd(id, 'tpT'), sTv: setEnd(id, 'tvT'),
-        wantBevel: e.wantBevel, bevYes: setEndV(id, 'wantBevel', true), bevNo: setEndV(id, 'wantBevel', false),
+        wantBevel: !!e.wantBevel, tgBevel: tgEnd(id, 'wantBevel'), bevS: pill(!!e.wantBevel),
+        bevEcho: E && E.bv ? 'BEVEL ' + E.bv + '\u00B0 \u00D7 ' + this.fr16(E.land) + '\u2033 LAND' : '',
+        bevYes: setEndV(id, 'wantBevel', true), bevNo: setEndV(id, 'wantBevel', false),
         bevYesS: pill(e.wantBevel), bevNoS: pill(!e.wantBevel),
         bvT: e.bvT, landT: e.landT, open2: e.open, app: e.app,
         sBv: setEnd(id, 'bvT'), sLand: setEnd(id, 'landT'), sOpen: setEnd(id, 'open'), sApp: setEnd(id, 'app'),
@@ -2570,6 +2858,8 @@ class Component extends DCLogic {
     }));
     const editPt = st.editId != null ? st.parts.find(x => x.id === st.editId) : null;
     const errList = c.warns.filter(w => w.lvl === 'err');
+    const markBad = this.markIssue(), moreErr = (c.errCount || 0) - errList.length;
+    const fsOn = !!st.fsName && this._fsSupported(), rv = st.review ? this.reviewInfo(st.review) : null;
     // "One wall only" is how every tube-laser hole works, not a problem with this part: it is a hint under Holes.
     const cautionList = c.warns.filter(w => w.lvl !== 'err' && !/ONE wall/.test(w.t) && !/^Loading/.test(w.t));
     const oneWall = c.warns.some(w => /ONE wall/.test(w.t));
@@ -2598,8 +2888,8 @@ class Component extends DCLogic {
       carEnds: st.step === 2 || st.step === 3 ? '\u25BE' : '\u25B8',
       sumEnds: 'A ' + endSteps[0].sum + ' \u00B7 B ' + endSteps[1].sum,
       showLenMode: st.lenMode === 'oal' || st.ends.A.mode !== 'sq' || st.ends.B.mode !== 'sq',
-      hasErr: errN > 0, errIssues: errList.map(w => ({ t: w.t })),
-      hasCaution: errN === 0 && cautionList.length > 0, cautions: cautionList.map(w => ({ t: w.t })),
+      hasErr: errN > 0 || !!markBad, errIssues: errList.map(w => ({ t: w.t })).concat(moreErr > 0 ? [{ t: '\u2026and ' + moreErr + ' more.' }] : [], markBad ? [{ t: markBad }] : []),
+      hasCaution: errN === 0 && !markBad && cautionList.length > 0, cautions: cautionList.map(w => ({ t: w.t })),
       oneWall,
       bevSum: 'Weld bevel' + (bevOn.length ? ' \u2014 on End ' + bevOn.join(' and ') : '') + (isRoundFam ? ' \u00B7 rolling offset' : ''),
       editing: !!editPt, notEditing: !editPt,
@@ -2608,8 +2898,9 @@ class Component extends DCLogic {
       addAsNew: () => this.addToJob(true),
       cancelEdit: () => this.setState(s => ({ editId: null, markStash: null, mark: s.markStash || s.mark })),
       viewA: () => this.viewEnd('A'), viewB: () => this.viewEnd('B'),
-      dlJobFiles: () => this.dlJobFiles(),
-      jobFilesLbl: st.jobBusy || 'Download all laser files',
+      dlJobFiles: () => this.askSave('job'),
+      jobFilesLbl: st.jobBusy || 'Save all laser files',
+      jobFilesSub: 'one IGS per part + the cut list \u2192 ' + (fsOn ? st.fsName : 'Downloads (zip)'),
       jobBusy: !!st.jobBusy || !!st.solidBusy || st.parts.length === 0,
       holeBtnLbl: st.wantHoles ? '+ Add another hole' : '+ Add a hole',
       holeHint: (oneWall ? 'Each hole goes through one wall. ' : '') + 'Click the flat drawing to add a hole, drag it to move it.',
@@ -2724,6 +3015,7 @@ class Component extends DCLogic {
       hasIssues: c.warns.length > 0,
       issues: c.warns.map(w => ({ t: w.t, dot: { color: w.lvl === 'err' ? '#B3261E' : '#B45309', font: '700 12px/1 monospace' } })),
       invalid: c.invalid || errN > 0,
+      addOff: c.invalid || errN > 0 || !!markBad,
       job: st.job, heat: st.heat, qty: st.qty, onJob: setS('job'), onHeat: setS('heat'),
       onQty: (e) => this.setState({ qty: Math.max(1, Math.round(+e.target.value || 1)) }),
       specShape: this.famLabel() + ' \u00B7 ' + c.sec.label,
@@ -2751,9 +3043,29 @@ class Component extends DCLogic {
       dxfRefOnS: { padding: '4px 7px', cursor: 'pointer', borderRadius: 3, border: '1px solid ' + (st.dxfRef ? '#1F3A5F' : '#C9CFD6'), background: st.dxfRef ? 'rgba(31,58,95,.08)' : 'transparent', color: st.dxfRef ? '#1F3A5F' : '#47515C', font: '700 12px/1 Barlow, sans-serif', letterSpacing: '.02em' },
       dxfRefOffS: { padding: '4px 7px', cursor: 'pointer', borderRadius: 3, border: '1px solid ' + (!st.dxfRef ? '#1F3A5F' : '#C9CFD6'), background: !st.dxfRef ? 'rgba(31,58,95,.08)' : 'transparent', color: !st.dxfRef ? '#1F3A5F' : '#47515C', font: '700 12px/1 Barlow, sans-serif', letterSpacing: '.02em' },
       dlStepMesh: () => { const t = this._stepText(); if (t) this._download(t, this.fileBase() + ' - VIEW ONLY mesh.step', 'application/step'); },
-      dlIgs: () => this.dlSolid('igs'), dlStep: () => this.dlSolid('step'),
-      igsLbl: st.solidBusy === 'igs' ? 'Building the file\u2026' : 'Download for the laser', stepLbl: st.solidBusy === 'step' ? 'Building solid\u2026' : 'STEP solid',
+      dlIgs: () => this.askSave('part'), dlStep: () => this.dlSolid('step'),
+      igsLbl: st.solidBusy === 'igs' ? 'Building the file\u2026' : 'Save for the laser', stepLbl: st.solidBusy === 'step' ? 'Building solid\u2026' : 'STEP solid',
+      igsSub: 'this part \u2014 IGS file for TubesT \u2192 ' + (fsOn ? st.fsName : 'Downloads'),
       solidBusy: !!st.solidBusy || !!st.jobBusy || c.invalid || errN > 0,
+      saveOff: !!st.solidBusy || !!st.jobBusy || c.invalid || errN > 0 || !!markBad,
+      hasSaveMsg: !!st.saveMsg, saveMsg: st.saveMsg,
+      saveMsgS: { font: '600 12px/1.45 JetBrains Mono, monospace', color: st.saveOk ? '#1F6F43' : '#B3261E', wordBreak: 'break-word' },
+      // laser folder line under the save button
+      fsLine: !this._fsSupported() ? 'Files go to Downloads. Chrome or Edge can save straight into the laser folder.' : !st.fsName ? 'No laser folder chosen \u2014 files go to Downloads.' : st.fsPerm === 'granted' ? 'Laser folder: ' + st.fsName + ' \u2713' : 'Laser folder: ' + st.fsName + ' \u2014 you will be asked to allow it when you save.',
+      fsCanPick: this._fsSupported(), fsPickLbl: st.fsName ? 'Change' : 'Choose laser folder',
+      // review card
+      reviewOpen: !!rv, rvJob: !!rv && rv.kind === 'job', rvPart: !!rv && rv.kind === 'part',
+      rvTitle: rv ? (rv.kind === 'job' ? 'Check the job before saving' : 'Check this part before saving') : '',
+      rv: rv && rv.one ? rv.one : { mark: '', qty: '', stock: '', len: '', sp: '', endA: '', endB: '', holes: '', wt: '', file: '' },
+      rvHasSp: !!(rv && rv.one && rv.one.sp),
+      rvRows: rv ? rv.rows.map(r => ({ mark: r.mark, qty: '\u00D7' + r.qty, txt: r.bad ? 'LEFT OUT \u2014 ' + (r.why || 'has an error') : r.stock + ' \u00B7 ' + r.len, s: { color: r.bad ? '#B3261E' : '#14181D', font: (r.bad ? '700' : '400') + ' 12.5px/1.45 Barlow, sans-serif' } })) : [],
+      rvDest: rv ? rv.dest : '', rvNoJob: !!rv && rv.noJob,
+      rvBevel: !!rv && rv.bevel,
+      rvHasCautions: !!rv && rv.cautions.length > 0, rvCautions: rv ? rv.cautions.map(t => ({ t })) : [],
+      rvHasOut: !!rv && rv.out > 0, rvOutTxt: rv && rv.out ? rv.out + ' part' + (rv.out > 1 ? 's' : '') + ' cannot be saved and will be LEFT OUT. Open ' + (rv.out > 1 ? 'each one' : 'it') + ' from the job list and fix what is shown in red.' : '',
+      rvGoLbl: rv ? (rv.kind === 'job' ? (rv.n ? 'Save ' + rv.n + ' laser file' + (rv.n > 1 ? 's' : '') : 'Nothing to save') : 'Save laser file') : '',
+      rvGoOff: !!rv && rv.n === 0,
+      rvGo: () => this.confirmSave(), rvBack: () => this.setState({ review: null }),
       dlObj: () => { const t = this._objText(); if (t) this._download(t, this.fileBase() + '.obj', 'model/obj'); },
       dlDxf: () => { const t = this._dxfText(); if (t) this._download(t, this.fileBase() + '.dxf', 'application/dxf'); },
       dlCsv: () => { const t = this._csvText(); if (t) this._download(t, this.fileBase() + '_holes.csv', 'text/csv'); },
@@ -2779,9 +3091,9 @@ class Component extends DCLogic {
       endASpec: c.invalid || !c.A ? '\u2014' : this.endSpecText(c.A, c.sec),
       endBSpec: c.invalid || !c.B ? '\u2014' : this.endSpecText(c.B, c.sec),
       holeChip: nOK ? Object.entries(byDia).map(([k, v]) => v + '\u00D7 ' + k).join('  ') : 'NO HOLES',
-      stReady: errN ? errN + ' thing' + (errN > 1 ? 's' : '') + ' to fix' : cautionList.length ? cautionList.length + ' thing' + (cautionList.length > 1 ? 's' : '') + ' to check' : 'Ready to cut',
+      stReady: (errN || markBad) ? ((c.errCount || errN) + (markBad ? 1 : 0)) + ' thing' + ((c.errCount || errN) + (markBad ? 1 : 0) > 1 ? 's' : '') + ' to fix' : cautionList.length ? cautionList.length + ' thing' + (cautionList.length > 1 ? 's' : '') + ' to check' : 'Ready to cut',
       midSpec: c.invalid ? '\u2014' : (Math.abs(c.LP - c.SP) > 1 / 64 ? 'SHORT POINT ' + this.fmtFtIn(c.SP) + ' \u00B7 ' : '') + (nOK ? Object.entries(byDia).map(([k, v]) => v + '\u00D7 ' + k).join('  ') : 'NO HOLES') + ' \u00B7 ' + Math.round(c.wt) + ' LB EA',
-      stReadyS: { color: errN ? '#B3261E' : cautionList.length ? '#B45309' : '#1F3A5F', font: '700 12px/1 JetBrains Mono, monospace', letterSpacing: '.02em' },
+      stReadyS: { color: (errN || markBad) ? '#B3261E' : cautionList.length ? '#B45309' : '#1F3A5F', font: '700 12px/1 JetBrains Mono, monospace', letterSpacing: '.02em' },
       stDims: c.invalid ? '\u2014' : 'CL ' + this.fmtFtIn(c.L) + ' \u00B7 LP ' + this.fmtFtIn(c.LP) + ' \u00B7 SP ' + this.fmtFtIn(c.SP),
       stWt: c.invalid ? '' : Math.round(c.wt) + ' LB EA',
       jobOpen: st.jobOpen, jobEmpty: st.parts.length === 0, jobParts, nests: nests.map(n2 => ({
@@ -2956,6 +3268,7 @@ class Component extends DCLogic {
   addToJob(asNew) {
     const c = this.calc(), st = this.state;
     if (this.blocked(c)) return;
+    if (!(asNew && st.editId != null) && this.markIssue()) return;
     const cfg = this.snapshot();
     const old = !asNew && st.editId != null ? st.parts.find(x => x.id === st.editId) : null;
     const part = {

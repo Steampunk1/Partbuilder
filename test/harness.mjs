@@ -976,7 +976,7 @@ function meshChecks(m) {
     const f = await freshApp(); f.setState({ parts: sqOld.state.parts });
     f.renderVals().jobParts[0].load();
     ok(f.state.lenMode === 'oal', 'older square-ended part loads as an overall part');
-    ok(f.state.heat === '' && f.state.ends.A.wantBevel === false, 'heat number and bevel note are dropped on load');
+    ok(f.state.heat === '' && f.state.ends.A.wantBevel === true, 'heat number is dropped on load; a weld bevel stays with the part');
     const sadOld = await fresh({ lenT: '40', lenMode: 'wp' }); sadOld.renderVals().endSteps[0].mSaddle(); sadOld.addToJob();
     const lpOld = sadOld.calc().LP;
     const f2 = await freshApp(); f2.setState({ parts: sadOld.state.parts });

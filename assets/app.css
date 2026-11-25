@@ -93,7 +93,7 @@ three-d-stage:not(:defined){visibility:hidden}
 .step-b{padding:4px 18px 18px;display:flex;flex-direction:column;gap:14px;background:var(--panel)}
 .q{font:600 13px/1.2 var(--font-body);color:var(--ink)}
 .box{border:1px solid var(--line);border-radius:8px;background:var(--sunk);padding:12px;display:flex;flex-direction:column;gap:10px}
-.fam{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
+.fam{display:grid;grid-template-columns:repeat(6,1fr);gap:5px}
 .fam button span{font:600 11.5px/1 var(--font-body)}
 details{border:1px solid var(--line);border-radius:8px;background:#fff}
 details>summary{cursor:pointer;padding:9px 12px;font:600 12.5px/1.2 var(--font-body);color:var(--ink2);list-style-position:inside}
@@ -186,3 +186,10 @@ details>.d{padding:12px;display:flex;flex-direction:column;gap:10px}
   .f input,.f select,.in{font-size:16px}
   .modal{position:fixed}
 }
+
+/* review card shown before every laser save */
+.modal dl.rv{grid-template-columns:120px 1fr;gap:6px 14px;font-size:13.5px;color:var(--ink)}
+.modal dl.rv dt{font:600 12px/1.5 var(--font-body);color:var(--ink2)}
+.modal dl.rv dd{font:600 13px/1.5 var(--font-mono);word-break:break-word}
+.modal .rvlist{display:flex;flex-direction:column;gap:6px;max-height:260px;overflow:auto;border:1px solid var(--line);border-radius:8px;background:var(--sunk);padding:10px 12px}
+.modal .rvlist b{font:700 13px/1.45 var(--font-mono);min-width:64px}
