@@ -167,6 +167,10 @@ class Component extends DCLogic {
     return loc.map(q => alongX ? [cx + q[0], cy + q[1]] : [cx + q[1], cy + q[0]]);
   }
   area(pts) { let a = 0; for (let i = 0; i < pts.length; i++) { const j = (i + 1) % pts.length; a += pts[i][0] * pts[j][1] - pts[j][0] * pts[i][1]; } return a / 2; }
+  /** A hole or slot outline grown by `m` all round, as points: every one must be on the steel. */
+  holeRim(x, y, dia, slotL, alongX, m) { return slotL && slotL > dia ? this.slotPts(x, y, slotL + 2 * m, dia + 2 * m, alongX, 32, false) : this.circPts(x, y, dia / 2 + m, 32, false); }
+  /** Root fillet of a rolled angle by leg size (AISC k minus thickness, to the nearest 1/16). */
+  angleFillet(sec) { const leg = Math.max(sec.a, sec.b), f = leg <= 1 ? .125 : leg <= 1.75 ? .1875 : leg <= 2.5 ? .25 : leg <= 4 ? .375 : leg <= 6 ? .5 : .625; return Math.max(.06, Math.min(f, Math.min(sec.a, sec.b) - sec.t - .05)); }
   pip(pt, poly) {
     let inside = false;
     for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
@@ -640,7 +644,7 @@ class Component extends DCLogic {
     if (!sec) return null;
     if (fam === 'angl') {
       const leg = g.face === 'hleg' ? sec.b : sec.a;
-      const T = [[7.5, 4.5], [6.5, 4], [5.5, 3.5], [4.5, 3], [3.75, 2.5], [3.25, 2], [2.75, 1.75], [2.25, 1.375], [1.75, 1.125]];
+      const T = [[7.5, 4.5], [6.5, 4], [5.5, 3.5], [4.5, 3], [3.75, 2.5], [3.25, 2], [2.75, 1.75], [2.25, 1.375], [1.75, 1.125], [1.45, .875], [1.2, .75], [.95, .625]];
       for (const [mn, gg] of T) if (leg >= mn) return gg;
       return null;
     }
@@ -672,8 +676,7 @@ class Component extends DCLogic {
         if (tooBig) { h.ok = false; warns.push({ lvl: 'err', t: '\u00D8' + this.fr16(dia) + ' hole is as wide as the pipe ' + (g.type === 'stub' ? 'ID' : 'OD') + ' \u2014 it cannot be cut. Use a smaller opening.' }); }
         else if (u - ru < 0 || u + ru > wrap) { h.ok = false; warns.push({ lvl: 'err', t: 'Hole at ' + deg + '\u00B0 crosses the program seam (180\u00B0 BOTTOM) \u2014 rotate the pattern.' }); }
         else {
-          const idx = Math.round(deg / 360 * N) % N;
-          if (x - rx < a[idx] + .1 || x + rx > b[idx] - .1) { h.ok = false; warns.push({ lvl: 'err', t: '\u00D8' + this.fr16(dia) + ' hole ' + this.fmtIn(x - hx0) + ' from End A, ' + deg + '\u00B0 runs off the end cut \u2014 skipped.' }); }
+          if (!this.clearOfEnds(a, b, (k) => wrap * k / N, wrap * deg / 360, ru, x, rx, wrap, .1)) { h.ok = false; warns.push({ lvl: 'err', t: '\u00D8' + this.fr16(dia) + ' hole ' + this.fmtIn(x - hx0) + ' from End A, ' + deg + '\u00B0 runs off the end cut \u2014 skipped.' }); }
         }
         holes.push(h);
       }
@@ -690,33 +693,34 @@ class Component extends DCLogic {
     const seg = (n, f) => { for (let i = 0; i < n; i++) stns.push(f(i / n)); };
     const fw = W - 2 * rc, fh = H - 2 * rc, qa = Math.PI * rc / 2;
     const nf = (len) => Math.max(3, Math.min(48, Math.ceil(len / .35)));
-    const nc = 9;
+    const nc = 36;   // 2.5 degree steps round each corner: the drawn outline is within half a thousandth of a compound-cut long point
     seg(nf(fw / 2), (u) => ({ y: -H / 2, z: -u * fw / 2, ny: -1, nz: 0 }));
-    seg(nc, (u) => { const th = u * Math.PI / 2; return { y: -(H / 2 - rc) - rc * Math.cos(th), z: -fw / 2 - rc * Math.sin(th), ny: -Math.cos(th), nz: -Math.sin(th) }; });
+    seg(nc, (u) => { const th = u * Math.PI / 2; return { arc: true, y: -(H / 2 - rc) - rc * Math.cos(th), z: -fw / 2 - rc * Math.sin(th), ny: -Math.cos(th), nz: -Math.sin(th) }; });
     seg(nf(fh), (u) => ({ y: -(H / 2 - rc) + u * fh, z: -W / 2, ny: 0, nz: -1 }));
-    seg(nc, (u) => { const th = u * Math.PI / 2; return { y: H / 2 - rc + rc * Math.sin(th), z: -fw / 2 - rc * Math.cos(th), ny: Math.sin(th), nz: -Math.cos(th) }; });
+    seg(nc, (u) => { const th = u * Math.PI / 2; return { arc: true, y: H / 2 - rc + rc * Math.sin(th), z: -fw / 2 - rc * Math.cos(th), ny: Math.sin(th), nz: -Math.cos(th) }; });
     seg(nf(fw), (u) => ({ y: H / 2, z: -fw / 2 + u * fw, ny: 1, nz: 0 }));
-    seg(nc, (u) => { const th = u * Math.PI / 2; return { y: H / 2 - rc + rc * Math.cos(th), z: fw / 2 + rc * Math.sin(th), ny: Math.cos(th), nz: Math.sin(th) }; });
+    seg(nc, (u) => { const th = u * Math.PI / 2; return { arc: true, y: H / 2 - rc + rc * Math.cos(th), z: fw / 2 + rc * Math.sin(th), ny: Math.cos(th), nz: Math.sin(th) }; });
     seg(nf(fh), (u) => ({ y: H / 2 - rc - u * fh, z: W / 2, ny: 0, nz: 1 }));
-    seg(nc, (u) => { const th = u * Math.PI / 2; return { y: -(H / 2 - rc) - rc * Math.sin(th), z: fw / 2 + rc * Math.cos(th), ny: -Math.sin(th), nz: Math.cos(th) }; });
+    seg(nc, (u) => { const th = u * Math.PI / 2; return { arc: true, y: -(H / 2 - rc) - rc * Math.sin(th), z: fw / 2 + rc * Math.cos(th), ny: -Math.sin(th), nz: Math.cos(th) }; });
     seg(nf(fw / 2), (u) => ({ y: -H / 2, z: fw / 2 - u * fw / 2, ny: -1, nz: 0 }));
+    // Distance round the tube is measured along the true corner arcs, not the chords
+    // between stations: a hole "on the centre of the side face" then sits there exactly.
     let s = 0;
+    const arcStep = qa / nc;
     for (let i = 0; i < stns.length; i++) {
-      if (i) { const p = stns[i - 1]; s += Math.hypot(stns[i].y - p.y, stns[i].z - p.z); }
+      if (i) { const p = stns[i - 1]; s += p.arc ? arcStep : Math.hypot(stns[i].y - p.y, stns[i].z - p.z); }
       stns[i].s = s;
     }
-    const last = stns[stns.length - 1], Pm = s + Math.hypot(stns[0].y - last.y, stns[0].z - last.z);
+    const last = stns[stns.length - 1], Pm = s + (last.arc ? arcStep : Math.hypot(stns[0].y - last.y, stns[0].z - last.z));
     const a = [], b = [];
-    let aMin = 1e9, bMax = -1e9, spMin = 1e9;
-    for (const q of stns) {
-      const xa = -q.y * A.tanv - q.z * A.tanp;
-      const xb = L + q.y * B.tanv + q.z * B.tanp;
-      a.push(xa); b.push(xb);
-      aMin = Math.min(aMin, xa); bMax = Math.max(bMax, xb); spMin = Math.min(spMin, xb - xa);
-    }
+    for (const q of stns) { a.push(-q.y * A.tanv - q.z * A.tanp); b.push(L + q.y * B.tanv + q.z * B.tanp); }
+    // Long and short points exactly, not at the nearest station: how far the rounded
+    // section reaches along a slope (gy, gz) is flat part + corner radius.
+    const reach = (gy, gz) => Math.abs(gy) * (H / 2 - rc) + Math.abs(gz) * (W / 2 - rc) + rc * Math.hypot(gy, gz);
+    const aMin = -reach(A.tanv, A.tanp), bMax = L + reach(B.tanv, B.tanp), spMin = L - reach(A.tanv + B.tanv, A.tanp + B.tanp);
     let invalid = false;
     if (spMin <= 0) { invalid = true; warns.push({ lvl: 'err', t: 'End cuts cross \u2014 short point \u2264 0.' }); }
-    const holes = this.boxHoles(sec, L, Pm, warns, invalid, a, b, stns);
+    const holes = this.boxHoles(sec, L, Pm, warns, invalid, a, b, stns, aMin, bMax);
     const wt = sec.wtFt * (L / 12) * this.matRec().f;
     const c = { kind: 'box', invalid, warns, L, A, B, stns, a, b, N: stns.length, wrap: Pm, holes, LP: bMax - aMin, SP: spMin, OAL: bMax - aMin, aMin, bMax, wt, sec,
       faceS: { B: 0, L: fw / 2 + qa + fh / 2, T: Pm / 2, R: Pm / 2 + fw / 2 + qa + fh / 2 }, fw, fh };
@@ -724,7 +728,19 @@ class Component extends DCLogic {
     return c;
   }
 
-  boxHoles(sec, L, Pm, warns, invalid, a, b, stns) {
+  /** Does the whole footprint of a hole clear both end cuts (with `margin` to spare)? The cut runs at a
+   *  slant across the hole's width, so every station under the hole is checked, not only the one at its centre.
+   *  sOf(k): distance round the part of station k; u: the hole's; ru / rx: half-size round and along. */
+  clearOfEnds(a, b, sOf, u, ru, x, rx, round, margin) {
+    const n = a.length, pad = round / n;
+    for (let k = 0; k < n; k++) {
+      let d = Math.abs(sOf(k) - u); d = Math.min(d, round - d);
+      if (d > ru + pad) continue;
+      if (x - rx < a[k] + margin || x + rx > b[k] - margin) return false;
+    }
+    return true;
+  }
+  boxHoles(sec, L, Pm, warns, invalid, a, b, stns, aMinX, bMaxX) {
     const st = this.state, holes = [];
     if (!st.wantHoles || invalid || !this.D) return holes;
     const fw = sec.B - 2 * sec.rc, fh = sec.H - 2 * sec.rc, qa = Math.PI * sec.rc / 2;
@@ -735,7 +751,7 @@ class Component extends DCLogic {
       const off = this.parseIn(g.offT) || 0;
       const face = ['T', 'R', 'B', 'L'].includes(g.face) ? g.face : 'T';
       const dir = face === 'T' ? 1 : face === 'R' ? -1 : face === 'B' ? -1 : 1;
-      const [hx0, hx1] = this.datum(Math.min(...a), Math.max(...b), L);
+      const [hx0, hx1] = this.datum(aMinX != null ? aMinX : Math.min(...a), bMaxX != null ? bMaxX : Math.max(...b), L);
       for (const x of this.holeXs(g, L, hx0, hx1)) {
         let u = faceS[face] + dir * off;
         u = ((u % Pm) + Pm) % Pm;
@@ -745,9 +761,7 @@ class Component extends DCLogic {
         if (u - ru < 0 || u + ru > Pm) { h.ok = false; warns.push({ lvl: 'err', t: 'Hole on ' + face + ' face crosses the program seam (bottom face CL) \u2014 nudge the offset off center.' }); }
         else if (Math.abs(off) + ru > half[face] - .05) { h.ok = false; warns.push({ lvl: 'err', t: 'Hole on ' + face + ' face at offset ' + this.fmtIn(off) + ' runs into the corner radius \u2014 skipped.' }); }
         else {
-          let bi = 0, bd = 1e9;
-          for (let k = 0; k < stns.length; k++) { const d = Math.abs(stns[k].s - u); if (d < bd) { bd = d; bi = k; } }
-          if (x - rx < a[bi] + .1 || x + rx > b[bi] - .1) { h.ok = false; warns.push({ lvl: 'err', t: '\u00D8' + this.fr16(dia) + ' hole ' + this.fmtIn(x - hx0) + ' from End A (' + face + ' face) runs off the end cut \u2014 skipped.' }); }
+          if (!this.clearOfEnds(a, b, (k) => stns[k].s, u, ru, x, rx, Pm, .1)) { h.ok = false; warns.push({ lvl: 'err', t: '\u00D8' + this.fr16(dia) + ' hole ' + this.fmtIn(x - hx0) + ' from End A (' + face + ' face) runs off the end cut \u2014 skipped.' }); }
         }
         holes.push(h);
       }
@@ -930,7 +944,8 @@ class Component extends DCLogic {
       const O = outlFor[h.face] || [];
       h.ok = !invalid && O.length > 2;
       if (h.ok) {
-        const tests = [[h.x - rx, h.c], [h.x + rx, h.c], [h.x, h.c - ry], [h.x, h.c + ry], [h.x, h.c]];
+        // the whole rim (a cope corner or a slanted end can clip a hole between its compass points)
+        const tests = this.holeRim(h.x, h.c, h.dia, h.slotL, h.ax === 'x', .02).concat([[h.x, h.c]]);
         for (const t of tests) if (!this.pip(t, O)) { h.ok = false; break; }
       }
       if (!h.ok && !invalid) warns.push({ lvl: 'err', t: '\u00D8' + this.fr16(h.dia) + ' hole ' + this.fmtIn(h.x - hx0) + ' from End A (' + h.face.toUpperCase() + ') falls off the material / in a cope \u2014 skipped.' });
@@ -993,20 +1008,31 @@ class Component extends DCLogic {
     const Ln = L;
     const xA = (y, z) => -y * A.tanv - z * A.tanp;
     const xB = (y, z) => Ln + y * B.tanv + z * B.tanp;
-    const xaV = (y) => xA(y, t / 2), xbV = (y) => xB(y, t / 2);
-    const xaH = (z) => xA(t / 2, z), xbH = (z) => xB(t / 2, z);
+    // Each leg as it is seen flat: its outline runs to the longer of its two faces, so the
+    // drawing and the flat DXF start and stop where the steel does (a plan miter makes the
+    // inside and outside face of a leg different lengths).
+    const xaV = (y) => Math.min(xA(y, 0), xA(y, t)), xbV = (y) => Math.max(xB(y, 0), xB(y, t));
+    const xaH = (z) => Math.min(xA(0, z), xA(t, z)), xbH = (z) => Math.max(xB(0, z), xB(t, z));
     let vleg = [[xaV(0), 0], [xbV(0), 0], [xbV(a), a], [xaV(a), a]];
     let hleg = [[xaH(t), t], [xbH(t), t], [xbH(b), b], [xaH(b), b]];
     if (this.area(vleg) < 0) vleg = vleg.reverse();
     if (this.area(hleg) < 0) hleg = hleg.reverse();
-    let aMin = 1e9, aMax = -1e9, bMin = 1e9, bMax = -1e9;
-    for (const [y, z] of [[0, t / 2], [a, t / 2], [t / 2, t], [t / 2, b]]) {
+    // Long and short points at the real corners of the section (not at leg mid-thickness),
+    // and the short point fibre by fibre: parallel miters do not "cross".
+    let aMin = 1e9, aMax = -1e9, bMin = 1e9, bMax = -1e9, SP = 1e9;
+    for (const [y, z] of [[0, 0], [0, b], [t, b], [t, t], [a, t], [a, 0]]) {
       const xa = xA(y, z), xb = xB(y, z);
-      aMin = Math.min(aMin, xa); aMax = Math.max(aMax, xa); bMin = Math.min(bMin, xb); bMax = Math.max(bMax, xb);
+      aMin = Math.min(aMin, xa); aMax = Math.max(aMax, xa); bMin = Math.min(bMin, xb); bMax = Math.max(bMax, xb); SP = Math.min(SP, xb - xa);
     }
-    const LP = bMax - aMin, SP = bMin - aMax;
+    const LP = bMax - aMin;
     let invalid = false;
     if (SP <= 0) { invalid = true; warns.push({ lvl: 'err', t: 'End cuts cross \u2014 short point \u2264 0.' }); }
+    // Where a hole may go on each leg: clear of the heel and its root fillet, and inside
+    // both end cuts through the full thickness of the leg.
+    const fil = this.angleFillet(sec), k = t + fil;
+    const lo = (y1, z1, y2, z2) => Math.max(xA(y1, z1), xA(y2, z2)), hi = (y1, z1, y2, z2) => Math.min(xB(y1, z1), xB(y2, z2));
+    const vIn = [[lo(k, 0, k, t), k], [hi(k, 0, k, t), k], [hi(a, 0, a, t), a], [lo(a, 0, a, t), a]];
+    const hIn = [[lo(0, k, t, k), k], [hi(0, k, t, k), k], [hi(0, b, t, b), b], [lo(0, b, t, b), b]];
     const holes = [];
     if (st.wantHoles && this.D && !invalid) for (const g of st.groups) {
       const { dia, slotL } = this.holeSize(g);
@@ -1015,16 +1041,18 @@ class Component extends DCLogic {
       const [hx0, hx1] = this.datum(aMin, bMax, Ln);
       for (const x of this.holeXs(g, Ln, hx0, hx1)) {
         const h = { face, x, c: gv, dia, slotL, ax: g.ax, grp: g.id, type: g.type, bolt: this.holeBasis(g), refEnd: g.refEnd, ok: true };
-        const O = face === 'vleg' ? vleg : hleg;
-        const rx = slotL && g.ax === 'x' ? slotL / 2 : dia / 2;
+        const O = face === 'vleg' ? vIn : hIn;
         const ry = slotL && g.ax === 'y' ? slotL / 2 : dia / 2;
-        const tests = [[x - rx, gv], [x + rx, gv], [x, gv - ry], [x, gv + ry]];
-        for (const q of tests) if (!this.pip(q, O)) { h.ok = false; break; }
-        if (!h.ok) warns.push({ lvl: 'err', t: '\u00D8' + this.fr16(dia) + ' hole ' + this.fmtIn(x - hx0) + ' from End A (' + (face === 'vleg' ? 'VERT' : 'HORIZ') + ' LEG, g=' + this.fmtIn(gv) + ') falls off the leg \u2014 skipped.' });
+        for (const q of this.holeRim(x, gv, dia, slotL, g.ax === 'x', .02).concat([[x, gv]])) if (!this.pip(q, O)) { h.ok = false; break; }
+        const legNm = face === 'vleg' ? 'VERT' : 'HORIZ';
+        if (!h.ok && gv - ry < k + .02) warns.push({ lvl: 'err', t: '\u00D8' + this.fr16(dia) + ' hole ' + this.fmtIn(x - hx0) + ' from End A (' + legNm + ' LEG, g=' + this.fmtIn(gv) + ') runs into the heel \u2014 keep the hole edge ' + this.fmtIn(k) + ' or more from the heel.' });
+        else if (!h.ok) warns.push({ lvl: 'err', t: '\u00D8' + this.fr16(dia) + ' hole ' + this.fmtIn(x - hx0) + ' from End A (' + legNm + ' LEG, g=' + this.fmtIn(gv) + ') falls off the leg \u2014 skipped.' });
         holes.push(h);
       }
     }
-    const wt = sec.wtFt * (Ln / 12) * this.matRec().f;
+    // weight from the length of the fibre through the centroid: exact for any pair of end planes
+    const A1 = a * t, A2 = (b - t) * t, yc = (A1 * a / 2 + A2 * t / 2) / (A1 + A2), zc = (A1 * t / 2 + A2 * (b + t) / 2) / (A1 + A2);
+    const wt = sec.wtFt * ((xB(yc, zc) - xA(yc, zc)) / 12) * this.matRec().f;
     const c = { kind: 'angl', invalid, warns, L: Ln, A, B, vleg, hleg, holes, LP, SP, OAL: LP, wt, sec, aMin, bMax };
     c.paths = this.anglPaths(c);
     return c;

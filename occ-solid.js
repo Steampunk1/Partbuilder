@@ -221,7 +221,8 @@ function plateSolid(K, comp, r) {
 // ---------------------------------------------------------------- ANGLE
 function angleSolid(K, comp, r) {
   const { a, b, t } = r.sec, R = reach(r, Math.max(a, b)), x0 = R.sq ? 0 : R.x0, len = (R.sq ? r.L : R.x1) - x0;
-  const rr = Math.max(.12, Math.min(.75 * t + .125, Math.min(a, b) - t - .05));
+  // root fillet by leg size, the same figure the form uses to keep holes off the heel
+  const rr = comp && typeof comp.angleFillet === 'function' ? comp.angleFillet(r.sec) : Math.max(.12, Math.min(.75 * t + .125, Math.min(a, b) - t - .05));
   let s = K.prism(K.sectionFace(x0, [[0, 0], [0, b], [t, b], [t, t], [a, t], [a, 0]], [[t, t, rr]]), [len, 0, 0]);
   s = planeEnds(K, s, r, 4 * Math.max(a, b) + 40, !R.sq);
   for (const h of r.holes) {
@@ -266,12 +267,55 @@ export function writeStep(K, shape, name) {
   return t;
 }
 
+/** How far an edge's surface-coordinate curve is from its own 3D curve, measured by the kernel (-1: not measurable). */
+function edgeGap(K, E, F) {
+  try { const ch = new K.oc.BRepLib_CheckCurveOnSurface_2(E, F); ch.Perform(false); return ch.IsDone() ? ch.MaxDistance() : -1; } catch (e) { return -1; }
+}
+function eachEdgeOnFace(K, s, fn) {
+  const oc = K.oc, T = oc.TopAbs_ShapeEnum;
+  const fx = K.mk('TopExp_Explorer', s, T.TopAbs_FACE, T.TopAbs_SHAPE);
+  for (; fx.More(); fx.Next()) {
+    const F = K.stat('TopoDS', 'Face', fx.Current());
+    const ex = K.mk('TopExp_Explorer', F, T.TopAbs_EDGE, T.TopAbs_SHAPE);
+    for (; ex.More(); ex.Next()) {
+      const E = K.stat('TopoDS', 'Edge', ex.Current());
+      if (K.stat('BRep_Tool', 'Degenerated', E) || K.stat('BRep_Tool', 'IsClosed', E, F)) continue;   // seams carry two curves; they are straight and convert exactly
+      fn(E, F);
+    }
+  }
+}
+/** An IGES trimmed surface carries every cut edge twice: as a 3D curve and as a curve in the surface's own
+ *  coordinates, and a reader may use either one. The kernel's NURBS conversion leaves the second one wrong
+ *  wherever a free-form edge (a hole or a saddle) crosses a cylinder - up to 1/8 in on 6 in pipe - so a reader
+ *  that prefers it would cut the hole in the wrong place. Every such curve is thrown away and rebuilt by
+ *  projecting the 3D curve onto the converted surface, then all of them are measured again.
+ *  -> { shape, rebuilt, worst } (worst: largest remaining disagreement, inches) */
+export function agreeEdges(K, nurbs) {
+  const oc = K.oc, sbe = new oc.ShapeBuild_Edge();
+  let rebuilt = 0;
+  eachEdgeOnFace(K, nurbs, (E, F) => { if (edgeGap(K, E, F) > 1e-4) { K.call(sbe, 'RemovePCurve', E, F); rebuilt++; } });
+  if (rebuilt) {
+    const fix = K.mk('ShapeFix_Shape', nurbs);
+    fix.SetPrecision(1e-7); fix.SetMaxTolerance(1e-5);
+    fix.Perform(new oc.Handle_Message_ProgressIndicator_1());
+    nurbs = fix.Shape();
+    K.stat('BRepLib', 'SameParameter', nurbs, 1e-6, true);
+  }
+  let worst = 0;
+  eachEdgeOnFace(K, nurbs, (E, F) => { worst = Math.max(worst, edgeGap(K, E, F)); });
+  return { shape: nurbs, rebuilt, worst };
+}
+
 export function writeIges(K, shape, name) {
   const oc = K.oc;
   const w = K.mk('IGESControl_Writer', 'IN', 0);                 // 0 = faces mode: trimmed surfaces (type 144), TubesT's usual input
   // Every surface and edge is first converted to exact NURBS (what SolidWorks writes for TubesT). The IGES
   // writer mangles analytic ellipses (a miter on a round or radiused corner); as NURBS they go out exact.
-  const nurbs = K.done(K.mk('BRepBuilderAPI_NurbsConvert', shape, true));
+  const conv = K.done(K.mk('BRepBuilderAPI_NurbsConvert', shape, true));
+  const ag = agreeEdges(K, conv), nurbs = ag.shape;
+  // Nothing is written unless the two descriptions of every cut edge agree and the solid is still one valid solid.
+  if (ag.worst > 1e-3) throw new Error('IGES: a cut edge is described two ways that differ by ' + ag.worst.toFixed(4) + ' in.');
+  if (ag.rebuilt && !(K.valid(nurbs) && K.count(nurbs, 'TopAbs_SOLID') === 1)) throw new Error('IGES: the solid did not survive the edge repair.');
   if (!K.call(w, 'AddShape', K.scale(nurbs, 25.4))) throw new Error('IGES: shape not accepted');   // the writer converts from millimetres to the unit asked for
   w.ComputeModel();
   K.call(w, 'Write', '/pb.igs', false);

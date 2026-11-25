@@ -187,5 +187,28 @@ try {
   ok(z._dl.length === 1 && /laser files\.zip$/.test(z._dl[0]) && /Unzip it into the laser folder/.test(z.state.saveMsg), 'no laser folder: one zip is downloaded and the form says what to do with it', z._dl.join(' | '));
 } catch (e) { fail++; fails.push('folder save: threw ' + (e && e.stack ? e.stack : e)); }
 
+// ---------- 5. every cut edge in the laser file is described the same way twice ----------
+// An IGES trimmed surface carries each edge as a 3D curve and as a curve in the surface's own
+// coordinates; a reader may use either. They must be the same edge. (Before the repair in
+// occ-solid.js agreeEdges() a 1 in hole on 6 in pipe differed by 0.135 in between the two.)
+try {
+  const { bVsCText } = await import('./_iges-bc.mjs');
+  const oc = await loadOcc(), occm = await import('../occ-solid.js');
+  const worstOf = (c) => { const r0 = c.calc(); if (c.blocked(r0)) return 'blocked: ' + errs(c).join(' | '); const { K, shape } = occm.buildSolid(oc, c, r0); const q = bVsCText(occm.writeIges(K, shape, 'x')); return q.rows.length ? Math.max(...q.rows.map((x) => x.worst)) : 'no trimming curves read'; };
+  const hole = (c, p) => c.setState((st) => ({ wantHoles: true, groups: [{ ...st.groups[0], type: 'cust', diaT: '1', x0T: '12', azT: '0', ...p }] }));
+  const list = [];
+  for (const az of ['0', '30', '60', '90', '120', '150', '210', '300']) list.push(['6 in pipe, 1 in hole at ' + az + ' deg', async () => { const c = await freshApp({ lenT: '24' }); hole(c, { azT: az }); return c; }]);
+  for (const [nps, dia] of [['2', '3/4'], ['12', '2'], ['24', '4']]) list.push([nps + ' in pipe, ' + dia + ' in hole at 120 deg', async () => { const c = await freshApp({ lenT: '36', pnps: nps, psch: 'STD' }); hole(c, { azT: '120', diaT: dia }); return c; }]);
+  list.push(['6 in pipe, branch-through hole (2 in SCH 40) x 3 round', async () => { const c = await freshApp({ lenT: '24' }); hole(c, { type: 'stub', bnps: '2', bsch: '40', azT: '45', aznT: '3', azpT: '100' }); return c; }]);
+  list.push(['6 in pipe saddled onto 10 in, sits on it', async () => { const c = await freshApp({ lenT: '24' }); c.renderVals().endSteps[0].mSaddle(); c.setState(end(c, 'A', { sdN: '10', sdS: '40' })); return c; }]);
+  list.push(['6 in pipe saddled onto 10 in at 45 deg, goes through it, other end mitered 30', async () => { const c = await freshApp({ lenT: '36' }); c.renderVals().endSteps[0].mSaddle(); c.setState(end(c, 'A', { sdN: '10', sdS: '40', sdAT: '45', sdSeat: 'thru' })); c.setState(end(c, 'B', { mode: 'miter', maT: '30', mrT: '90' })); return c; }]);
+  list.push(['6 in pipe, saddle both ends + holes', async () => { const c = await freshApp({ lenT: '48' }); c.renderVals().endSteps[0].mSaddle(); c.renderVals().endSteps[1].mSaddle(); hole(c, { x0T: '24', azT: '90', aznT: '2', azpT: '180' }); return c; }]);
+  list.push(['2 in OD x .120 round tube, miter + hole', async () => { const c = await freshApp(); c.pickFam('tube')(); c.setState({ lenT: '30', todT: '2', twallT: '.120' }); c.setState(end(c, 'B', { mode: 'miter', maT: '45', mrT: '0' })); hole(c, { diaT: '9/16', x0T: '6', azT: '90' }); return c; }]);
+  list.push(['4x4x1/4 tube, compound miter + side holes', async () => { const c = await freshApp(); c.pickFam('hss')(); c.setState({ lenT: '36' }); c.setState(end(c, 'A', { mode: 'ang', tvT: '30', tpT: '20' })); c.setState((st) => ({ wantHoles: true, groups: [{ ...st.groups[0], face: 'L', type: 'cust', diaT: '9/16', x0T: '8', nT: '2', pT: '3' }] })); return c; }]);
+  list.push(['W12x26, top cope + web bolts', async () => { const c = await freshApp(); c.pickFam('beam')(); c.setState({ lenT: '60' }); c.setState(end(c, 'A', { wantCope: true, ct: true })); c.renderVals().recipes[0].go(); return c; }]);
+  list.push(['L3x3x1/4, plan miter + 2 bolts', async () => { const c = await freshApp(); c.pickFam('angl')(); c.setState({ lenT: '24' }); c.setState(end(c, 'A', { mode: 'ang', tvT: '0', tpT: '-45' })); c.setState((st) => ({ wantHoles: true, groups: [{ ...st.groups[0], face: 'vleg', type: 'std', bolt: '3/4', gT: '1 3/4', refEnd: 'B', x0T: '1 1/2', nT: '2', pT: '3' }] })); return c; }]);
+  for (const [name, mk] of list) { let w; try { w = worstOf(await mk()); } catch (e) { w = 'threw: ' + (e && e.message ? e.message : e); } ok(typeof w === 'number' && w < 5e-4, 'laser file edges agree: ' + name, typeof w === 'number' ? w.toFixed(6) + ' in' : w); }
+} catch (e) { fail++; fails.push('edge agreement: threw ' + (e && e.stack ? e.stack : e)); }
+
 console.log(pass + ' passed, ' + fail + ' failed');
 if (fail) { console.log('FAILURES:'); for (const f of fails) console.log('  ✗ ' + f); process.exit(1); }
