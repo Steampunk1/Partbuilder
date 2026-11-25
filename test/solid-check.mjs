@@ -226,12 +226,15 @@ try {
   // one job part that cannot be exported: its hole sits on the end cut
   j.setState((s) => ({ parts: s.parts.concat([Object.assign({}, s.parts[3], { id: 99, mark: 'BAD-1', payload: j.encodeCfgV1(Object.assign(j.cfgFromPart(s.parts[3]), { groups: [Object.assign({}, j.cfgFromPart(s.parts[3]).groups[0], { x0T: '0' })] })) })]) }));
   ok(j.state.parts.length === 5, 'job export: 5 parts in the job');
-  const formBefore = JSON.stringify(j.state);
+  // the form itself; the "Saved ..." status line is expected to change
+  const formOf = (st) => JSON.stringify(Object.assign({}, st, { saveMsg: '', saveOk: true }));
+  const formBefore = formOf(j.state);
   j._occ = async () => ({ oc, m: occm });
   let got = null; j._download = (blob, name) => { got = { blob, name }; };
   await j.dlJobFiles();
   ok(!!got && /laser files\.zip$/.test(got.name), 'job export: one zip is handed over', got && got.name);
-  ok(JSON.stringify(j.state) === formBefore, 'job export: the form is exactly as it was afterwards');
+  ok(formOf(j.state) === formBefore, 'job export: the form is exactly as it was afterwards');
+  ok(/laser files\.zip/.test(j.state.saveMsg), 'job export: the form says where the zip went', j.state.saveMsg);
   if (got) {
     const u = new Uint8Array(await got.blob.arrayBuffer()), dv = new DataView(u.buffer), dec = new TextDecoder();
     const zp = (await import('node:path')).join((await import('node:os')).tmpdir(), 'pb_job_export_check_' + process.pid + '.zip');
