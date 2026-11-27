@@ -83,18 +83,24 @@ const grp = (c, p) => ({ wantHoles: true, groups: [{ ...c.state.groups[0], ...p 
 
 // ---------- 1b. what the laser takes: 14 in OD, 42 ft ----------
 {
-  ok(LASER_AS_SHIPPED.maxOD === 14 && LASER_AS_SHIPPED.maxLen === 504, 'the app ships with the laser at 14 in OD and 42 ft', JSON.stringify(LASER_AS_SHIPPED));
+  ok(LASER_AS_SHIPPED.maxOD === 14 && LASER_AS_SHIPPED.maxLen === 504, 'the app ships with the laser at 14 in OD and a 42 ft longest stick', JSON.stringify(LASER_AS_SHIPPED));
   Component.LASER = Object.assign({}, LASER_AS_SHIPPED);
   try {
-    const p14 = await freshApp({ lenT: "42'-0", pnps: '14', psch: 'STD' });
-    ok(!p14.blocked(p14.calc()), '14 in pipe, 42 ft long is allowed', errs(p14).join(' | '));
+    // 42 ft is the longest STICK. The chuck holds 6 in of it, so the longest piece is 41 ft 6 in.
+    const p14 = await freshApp({ lenT: "41'-6", pnps: '14', psch: 'STD' });
+    ok(!p14.blocked(p14.calc()), '14 in pipe, 41 ft 6 in long is allowed', errs(p14).join(' | '));
     const p16 = await freshApp({ lenT: '48', pnps: '16', psch: 'STD' });
     ok(p16.blocked(p16.calc()) && errs(p16).some((t) => /16\u2033 OD/.test(t) && /14\u2033 OD at most/.test(t)), '16 in pipe is refused', errs(p16).join(' | '));
-    const long = await freshApp({ lenT: "42'-0 1/16" });
-    ok(long.blocked(long.calc()) && errs(long).some((t) => /laser takes 42\u2032-0\u2033 at most/.test(t)), 'a piece 1/16 over 42 ft is refused', errs(long).join(' | '));
-    // overall length is what counts: 41'-11 typed centre to centre is not the test, the long points are
-    const mit = await freshApp({ lenT: "42'-0" }); mit.setState(end(mit, 'A', { mode: 'miter', maT: '45', mrT: '0' }));
-    ok(!mit.blocked(mit.calc()) && Math.abs(mit.calc().OAL - 504) < 1e-6, 'a mitered piece typed 42 ft end to end is 42 ft overall and allowed', mit.calc().OAL);
+    const long = await freshApp({ lenT: "41'-6 1/16" });
+    ok(long.blocked(long.calc()) && errs(long).some((t) => /longest stick the laser takes is 42\u2032-0\u2033/.test(t) && /longest piece is 41\u2032-6\u2033/.test(t)), 'a piece 1/16 over 41 ft 6 in is refused, with the reason', errs(long).join(' | '));
+    const full = await freshApp({ lenT: "42'-0" });
+    ok(full.blocked(full.calc()), 'a 42 ft piece is refused: no stick is long enough once the chuck has its grip', errs(full).join(' | '));
+    // the grip is the shop's own figure: with a 2 in grip the longest piece is 41 ft 10 in
+    const g2 = await freshApp({ lenT: "41'-10", gripT: '2' }); ok(!g2.blocked(g2.calc()), 'with the chuck grip set to 2 in, a 41 ft 10 in piece is allowed', errs(g2).join(' | '));
+    const g2b = await freshApp({ lenT: "41'-10 1/8", gripT: '2' }); ok(g2b.blocked(g2b.calc()), 'and 1/8 more is refused');
+    // overall length is what counts: the long points, not what is typed centre to centre
+    const mit = await freshApp({ lenT: "41'-6" }); mit.setState(end(mit, 'A', { mode: 'miter', maT: '45', mrT: '0' }));
+    ok(!mit.blocked(mit.calc()) && Math.abs(mit.calc().OAL - 498) < 1e-6, 'a mitered piece typed 41 ft 6 in end to end is 41 ft 6 in overall and allowed', mit.calc().OAL);
     const t = await freshApp(); t.pickFam('tube')(); t.setState({ lenT: '48', todT: '14 1/8', twallT: '1/4' });
     ok(t.blocked(t.calc()) && errs(t).some((x) => /14\u2033 OD at most/.test(x)), 'round tube over 14 in OD is refused', errs(t).join(' | '));
     // the size list for the part itself stops at 14 in; the "fits against" list for a saddle does not

@@ -415,7 +415,7 @@ class Component extends DCLogic {
     return 0;
   }
   /** What the shop laser takes: largest round it swings (inches OD) and longest piece (inches). */
-  static LASER = { maxOD: 14, maxLen: 42 * 12 };
+  static LASER = { maxOD: 14, maxLen: 42 * 12 };   // maxLen: the longest STICK (42 ft). The longest piece is that less the chuck grip.
   /** A weld-access hole stops this far short of the flange underside: a round cut that only touches a flat
    *  face leaves a zero-width edge that the laser file cannot carry. */
   static RAT_GAP = 0.005;
@@ -441,7 +441,10 @@ class Component extends DCLogic {
     {
       const Lt = inch(st.lenT), LZ = Component.LASER, over = c && !c.invalid && (c.OAL || c.L) > 0 ? (c.OAL || c.L) : Lt;
       if (Lt != null && Lt > 0 && Lt < .25) out.push('Cut length ' + txt(st.lenT) + ' is under 1/4\u2033 \u2014 check it.');
-      if (over != null && over > LZ.maxLen + 1e-6) out.push('This piece is ' + this.fmtFtIn(over) + ' overall \u2014 the laser takes ' + this.fmtFtIn(LZ.maxLen) + ' at most.');
+      // maxLen is the longest STICK the laser takes. The chuck keeps a grip of every stick that cannot be cut,
+      // so the longest PIECE is the longest stick less the grip (42 ft less 6 in = 41 ft 6 in as shipped).
+      const grip = this.parseIn(st.gripT) || 6;
+      if (over != null && over > LZ.maxLen - grip + 1e-6) out.push('This piece is ' + this.fmtFtIn(over) + ' overall. The longest stick the laser takes is ' + this.fmtFtIn(LZ.maxLen) + ' and the chuck holds ' + this.fmtIn(grip) + ' of it, so the longest piece is ' + this.fmtFtIn(LZ.maxLen - grip) + '.');
       else if (Lt != null && Lt > 576) out.push('Cut length ' + this.fmtFtIn(Lt) + ' is longer than a 48 ft stick.');   // no stock is longer, whatever the machine
       if (round && sec.od > LZ.maxOD + 1e-6) out.push(sec.label + ' is ' + (+sec.od.toFixed(3)) + '\u2033 OD \u2014 the laser takes ' + LZ.maxOD + '\u2033 OD at most.');
     }
@@ -626,11 +629,6 @@ class Component extends DCLogic {
     { const d2 = (!c.invalid && c.aMin != null && c.bMax != null) ? this.datum(c.aMin, c.bMax, c.L) : [0, c.L || 0]; c.x0 = d2[0]; c.x1 = d2[1]; }
     if (this.D) for (const t of this.inputErrs(c)) (c.warns = c.warns || []).push({ lvl: 'err', t });
     if (this.D && !c.invalid) this.holeClashes(c);
-    if (this.D && !c.invalid) {
-      // a stick keeps a length in the chuck that cannot be cut: a piece longer than the longest stick less that grip comes out of no stick
-      const grip = this.parseIn(st.gripT) || 6, over = c.OAL || c.L || 0, longest = Component.LASER.maxLen;
-      if (isFinite(longest) && over <= longest + 1e-6 && over > longest - grip + 1e-6) (c.warns = c.warns || []).push({ lvl: 'warn', t: 'This piece is ' + this.fmtFtIn(over) + '. The chuck holds ' + this.fmtIn(grip) + ' of every stick, so it needs a ' + (+(over + grip).toFixed(3)) + '\u2033 stick \u2014 the longest is ' + this.fmtFtIn(longest) + ' (' + longest + '\u2033). Check the chuck grip, or shorten the piece to ' + this.fmtFtIn(longest - grip) + ' or less.' });
-    }
     if (this.D && !c.invalid) {
       // the 14 in limit is the circle the piece turns in: square / rect tube, beam, channel and angle are measured corner to corner
       const s2 = c.sec || {}, lim = Component.LASER.maxOD, env = s2.kind === 'round' ? 0 : Component.envelope(s2);

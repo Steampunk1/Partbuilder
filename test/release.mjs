@@ -204,7 +204,10 @@ const MARK = /NOT READY/i;
 
 // ------------------------------------------------------------------ 4. the stick count
 {
-  const j = await freshApp({ lenT: '500', mark: 'LONG-1', qty: 1, job: '3020' }); j.addToJob();
+  // a 500 in piece cannot be added any more with the 6 in grip (see below). One can still be in a job: an
+  // older job, or a job whose chuck grip was changed after the part went in. Here: added with a 1 in grip.
+  const j = await freshApp({ lenT: '500', mark: 'LONG-1', qty: 1, job: '3020', gripT: '1' }); j.addToJob();
+  ok(j.state.parts.length === 1, 'set-up: the long piece is in the job');
   const key = j.state.parts[0].groupKey;
   j.setState({ stickSel: { [key]: '504' }, gripT: '6' });
   let n = j.nestGroups()[0];
@@ -213,11 +216,13 @@ const MARK = /NOT READY/i;
   const v = j.renderVals(); ok(v.nests[0].unplacedTxt && /LONG-1/.test(v.nests[0].unplacedTxt) && /498/.test(v.nests[0].unplacedTxt) && !/100\.4|-2/.test(v.nests[0].chip), 'job list: says which piece will not fit and why', v.nests[0].chip + ' // ' + v.nests[0].unplacedTxt);
   ok(/0 STICKS/.test(v.roSticks), 'job total: 0 sticks, not 1', v.roSticks);
   const rv = j.reviewInfo('job'); ok(rv.cautions.some((t) => /LONG-1/.test(t) && /will not fit/i.test(t)), 'job check card: warns before the job is released', rv.cautions.join(' | '));
-  // on the form, before it ever reaches the job list
-  const f = await freshApp({ lenT: '500', gripT: '6' }); ok(!f.blocked(f.calc()) && warns(f).some((t) => /grip/i.test(t) && /506/.test(t)), 'on the form: a 500 in piece carries a caution that it needs a 506 in stick with the 6 in grip', warns(f).join(' | '));
-  const g = await freshApp({ lenT: '498', gripT: '6' }); ok(!warns(g).some((t) => /grip/i.test(t)), 'a 498 in piece: no such caution');
+  ok(rv.out === 1 && rv.n === 0 && /longest piece/.test(rv.rows[0].why), 'and the piece itself is refused there: longer than the longest stick less the grip', rv.rows[0].why);
+  // on the form, before it ever reaches the job list: 42 ft is the longest stick, so 498 in is the longest piece
+  const f = await freshApp({ lenT: '500', gripT: '6' }); ok(f.blocked(f.calc()) && errs(f).some((t) => /chuck holds 6/.test(t) && /longest piece is 41\u2032-6\u2033/.test(t)), 'on the form: a 500 in piece is refused - longest stick 42 ft less the 6 in grip', errs(f).join(' | '));
+  f.addToJob(); ok(f.state.parts.length === 0, 'and it cannot be added to a job');
+  const g = await freshApp({ lenT: '498', gripT: '6' }); ok(!g.blocked(g.calc()), 'a 498 in piece is allowed', errs(g).join(' | '));
   // mixed group: the pieces that fit are nested, the one that does not is set aside
-  const m = await freshApp({ lenT: '500', mark: 'LONG-1', qty: 1, job: '3021' }); m.addToJob(); m.setState({ lenT: '100', mark: 'S-1', qty: 4 }); m.addToJob();
+  const m = await freshApp({ lenT: '500', mark: 'LONG-1', qty: 1, job: '3021', gripT: '1' }); m.addToJob(); m.setState({ lenT: '100', mark: 'S-1', qty: 4 }); m.addToJob();
   m.setState({ stickSel: { [m.state.parts[0].groupKey]: '504' }, gripT: '6' }); n = m.nestGroups()[0];
   ok(n.unplaced.length === 1 && n.placed === 4 && n.sticks === 1 && n.util > 0 && n.util <= 1 && n.drop >= 0, 'mixed: four 100 in pieces on one stick, the 500 in piece set aside, utilisation at or under 100 %', JSON.stringify({ s: n.sticks, util: +n.util.toFixed(3), drop: +n.drop.toFixed(2) }));
   // a stock length is offered that fits, when the user has not picked one
