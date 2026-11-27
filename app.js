@@ -709,7 +709,8 @@ class Component extends DCLogic {
     // weight from the average length round the pipe: right for saddles as well as miters
     const wt = sec.wtFt * (a.reduce((t, v, i) => t + (b[i] - v), 0) / N / 12) * this.matRec().f;
     const c = { kind: 'round', invalid, warns, L, A, B, a, b, N, wrap, holes, LP: bMax - aMin, SP: spMin, OAL: bMax - aMin, aMin, bMax, wt, sec, tips };
-    c.paths = this.wrapPaths(c, [[0, '180\u00B0 BOTTOM \u00B7 SEAM'], [.25, '270\u00B0'], [.5, '0\u00B0 TOP'], [.75, '90\u00B0'], [1, '180\u00B0 BOTTOM']]);
+    // [how far round, label, short label for a narrow screen, which labels give way first when the drawing is short (2 before 1)]
+    c.paths = this.wrapPaths(c, [[0, '180\u00B0 BOTTOM \u00B7 SEAM', '180\u00B0', 1], [.25, '270\u00B0', '270\u00B0', 2], [.5, '0\u00B0 TOP', '0\u00B0 TOP', 0], [.75, '90\u00B0', '90\u00B0', 2], [1, '180\u00B0 BOTTOM \u00B7 SEAM', '180\u00B0', 1]]);
     return c;
   }
 
@@ -839,7 +840,7 @@ class Component extends DCLogic {
     const wt = sec.wtFt * (L / 12) * this.matRec().f;
     const c = { kind: 'box', invalid, warns, L, A, B, stns, a, b, N: stns.length, wrap: Pm, holes, LP: bMax - aMin, SP: spMin, OAL: bMax - aMin, aMin, bMax, wt, sec,
       faceS: { B: 0, L: fw / 2 + qa + fh / 2, T: Pm / 2, R: Pm / 2 + fw / 2 + qa + fh / 2 }, fw, fh };
-    c.paths = this.wrapPaths(c, [[0, 'BOTTOM CL \u00B7 SEAM'], [c.faceS.L / Pm, 'LEFT'], [.5, 'TOP CL'], [c.faceS.R / Pm, 'RIGHT'], [1, 'BOTTOM CL']]);
+    c.paths = this.wrapPaths(c, [[0, 'BOTTOM CL \u00B7 SEAM', 'BOT', 1], [c.faceS.L / Pm, 'LEFT', 'LEFT', 2], [.5, 'TOP CL', 'TOP', 0], [c.faceS.R / Pm, 'RIGHT', 'RIGHT', 2], [1, 'BOTTOM CL \u00B7 SEAM', 'BOT', 1]]);
     return c;
   }
 
@@ -911,10 +912,11 @@ class Component extends DCLogic {
     for (let x = 12; x < L; x += 12) gridP += 'M' + x + ' 0V' + wrap.toFixed(2);
     let refP = '';
     const lbls = [];
-    for (const [f, t] of marks) {
+    const side = [];
+    for (const [f, t, ts, pri] of marks) {
       const y = wrap * f;
       refP += 'M' + (x0 + .3).toFixed(2) + ' ' + y.toFixed(3) + 'H' + (x1 - .3).toFixed(2);
-      lbls.push({ x: x0 + fs * .4, y: y - fs * .35, t, s: { font: '500 ' + (fs * .85) + 'px JetBrains Mono, monospace', fill: '#5C6670' } });
+      side.push({ y, t, ts: ts || t, pri: pri || 0 });
     }
     const wpP = 'M0 -' + (fs * .8).toFixed(2) + 'V' + (wrap + fs * .8).toFixed(2) + 'M' + L + ' -' + (fs * .8).toFixed(2) + 'V' + (wrap + fs * .8).toFixed(2);
     let holesP = '';
@@ -923,7 +925,8 @@ class Component extends DCLogic {
       const pts = h.slotL ? this.slotPts(h.x, h.u, h.slotL, h.dia, h.ax === 'x', 20, false) : h.uh ? this.pipeHolePts(h, 40, false) : this.circPts(h.x, h.u, h.dia / 2, 20, false);
       holesP += 'M' + pts.map(p => p[0].toFixed(3) + ' ' + p[1].toFixed(3)).join('L') + 'Z';
     }
-    return { vb: x0.toFixed(2) + ' ' + (-fs * 2.2).toFixed(2) + ' ' + span.toFixed(2) + ' ' + (wrap + fs * 4).toFixed(2), gridP, refP, wpP, outAP: d, outBP: '', outCP: '', holesP, lbls, sw: span / 900 * 1.6, swThin: span / 900, fs, dash: (fs * .5).toFixed(2) + ' ' + (fs * .35).toFixed(2) };
+    return { vb: x0.toFixed(2) + ' ' + (-fs * 2.2).toFixed(2) + ' ' + span.toFixed(2) + ' ' + (wrap + fs * 4).toFixed(2), gridP, refP, wpP, outAP: d, outBP: '', outCP: '', holesP, lbls, sw: span / 900 * 1.6, swThin: span / 900, fs, dash: (fs * .5).toFixed(2) + ' ' + (fs * .35).toFixed(2),
+      ext: { x0, x1, y0: -fs * .8, y1: wrap + fs * .8 }, side };
   }
 
   calcPlate(sec, L, warns) {
@@ -1116,16 +1119,17 @@ class Component extends DCLogic {
     let wpP = 'M0 ' + (oTf - .6) + 'V' + (H + .6) + 'M' + L + ' ' + (oTf - .6) + 'V' + (H + .6);
     const span = x1 - x0;
     const fs = span / 95;
-    const lS = { font: '500 ' + fs + 'px JetBrains Mono, monospace', fill: '#7E8893' };
     return {
       vb: x0.toFixed(2) + ' ' + (-fs * 1.6).toFixed(2) + ' ' + span.toFixed(2) + ' ' + (H + fs * 3.4).toFixed(2),
       gridP, refP: '', wpP,
       outAP: path(tfO, mTf), outBP: path(web, mWeb), outCP: path(bfO, mBf),
       holesP, fs, sw: span / 900 * 1.6, swThin: span / 900, dash: (fs * .5).toFixed(2) + ' ' + (fs * .35).toFixed(2),
-      lbls: [
-        { x: x0 + fs * .6, y: oTf - fs * .45, t: 'TOP FLG — FROM ABOVE', s: lS },
-        { x: x0 + fs * .6, y: oWeb - gap * .18, t: 'WEB — ELEVATION', s: lS },
-        { x: x0 + fs * .6, y: oBf - gap * .18, t: 'BOT FLG — FROM BELOW (MIRRORED)', s: lS }
+      lbls: [],
+      ext: { x0, x1, y0: oTf - .6, y1: H + .6 },
+      side: [
+        { y: oTf + Wb / 2, t: 'TOP FLANGE', sub: 'from above', ts: 'TOP FLG', pri: 1 },
+        { y: oWeb + sec.d / 2, t: 'WEB', sub: 'elevation', ts: 'WEB', pri: 0 },
+        { y: oBf + Wb / 2, t: 'BOT FLANGE', sub: 'from below, mirrored', ts: 'BOT FLG', pri: 1 }
       ]
     };
   }
@@ -1209,26 +1213,87 @@ class Component extends DCLogic {
     for (let x = 12; x < L; x += 12) gridP += 'M' + x + ' ' + (oV - .4) + 'V' + (H + .4);
     const wpP = 'M0 ' + (oV - .6) + 'V' + (H + .6) + 'M' + L + ' ' + (oV - .6) + 'V' + (H + .6);
     const span = x1 - x0, fs = span / 95;
-    const lS = { font: '500 ' + fs + 'px JetBrains Mono, monospace', fill: '#7E8893' };
     return {
       vb: x0.toFixed(2) + ' ' + (-fs * 1.6).toFixed(2) + ' ' + span.toFixed(2) + ' ' + (H + fs * 3.4).toFixed(2),
       gridP, refP: '', wpP,
       outAP: path(vleg, mV), outBP: path(hleg, mH), outCP: '',
       holesP, fs, sw: span / 900 * 1.6, swThin: span / 900, dash: (fs * .5).toFixed(2) + ' ' + (fs * .35).toFixed(2),
-      lbls: [
-        { x: x0 + fs * .6, y: oV - fs * .45, t: 'VERT LEG — ELEVATION (HEEL DOWN)', s: lS },
-        { x: x0 + fs * .6, y: oH - gap * .18, t: 'HORIZ LEG — FROM ABOVE (HEEL AT TOP)', s: lS }
+      lbls: [],
+      ext: { x0, x1, y0: oV - .6, y1: H + .6 },
+      side: [
+        { y: oV + a / 2, t: 'VERT LEG', sub: 'elevation, heel down', ts: 'VERT', pri: 0 },
+        { y: oH + (b - t) / 2, t: 'HORIZ LEG', sub: 'from above, heel at top', ts: 'HORIZ', pri: 1 }
       ]
     };
   }
 
   /** Mouse event on the band SVG → viewBox coordinates (accounts for the
    *  xMidYMid meet letterboxing). Null when the part is invalid. */
+  /** Fit a drawing (extents E, in inches) into a box W x H pixels, keeping `pad` pixels clear on each side
+   *  { l, r, t, b }. Returns the scale (pixels per inch) and a viewBox with exactly the box's proportions,
+   *  so one inch is the same number of pixels across and down and nothing is guessed by the browser. */
+  fitBox(E, W, H, pad) {
+    const sx = Math.max(1e-6, E.x1 - E.x0), sy = Math.max(1e-6, E.y1 - E.y0);
+    const s = Math.max(1e-4, Math.min((W - pad.l - pad.r) / sx, (H - pad.t - pad.b) / sy));
+    const vw = W / s, vh = H / s;
+    // the drawing sits in the middle of what is left after the padding
+    const vx = E.x0 - pad.l / s - ((W - pad.l - pad.r) / s - sx) / 2, vy = E.y0 - pad.t / s - ((H - pad.t - pad.b) / s - sy) / 2;
+    return { s, vx, vy, vw, vh, vb: [vx, vy, vw, vh].map(v => v.toFixed(4)).join(' ') };
+  }
+  /** Where the labels of a flat drawing go when it is shown W x H pixels. They are a fixed size on screen
+   *  (o.px tall) and sit in a margin to the LEFT of the part, each level with what it names - never on the
+   *  part. On a narrow screen the short names are used; where two labels would touch, the less important
+   *  one is left out; where a second line will not fit, it is left out. */
+  bandLayout(p, W, H, o) {
+    o = Object.assign({ px: 11, sub: 9, pad: 8, gap: 7, narrow: 620, font: 'JetBrains Mono, monospace' }, o || {});
+    if (!p || !p.ext) return { vb: (p && p.vb) || '0 0 100 10', labels: [], s: 1 };
+    const wide = W >= o.narrow, CH = .62;                                  // a monospace letter is about .62 of its height wide
+    let side = (p.side || []).map(l => ({ y: l.y, t: wide ? l.t : (l.ts || l.t), sub: wide ? (l.sub || '') : '', pri: l.pri || 0 }));
+    const gutterOf = (ls) => ls.length ? Math.ceil(Math.max(...ls.map(l => Math.max(l.t.length * o.px, l.sub.length * o.sub))) * CH) + o.gap : 0;
+    if (W - gutterOf(side) - 2 * o.pad < 120) side = [];                   // no room for a margin at all: the drawing comes first
+    let fit = this.fitBox(p.ext, W, H, { l: o.pad + gutterOf(side), r: o.pad, t: o.pad, b: o.pad });
+    // second lines only where every label has room for two lines
+    const two = (l) => l.sub ? o.px + o.sub + 3 : o.px;
+    const room = (ls, h) => { const ys = ls.map(l => l.y * fit.s).sort((a, b) => a - b); for (let i = 1; i < ys.length; i++) if (ys[i] - ys[i - 1] < h + 3) return false; return true; };
+    if (side.some(l => l.sub) && !room(side, o.px + o.sub + 3)) { side = side.map(l => Object.assign({}, l, { sub: '' })); fit = this.fitBox(p.ext, W, H, { l: o.pad + gutterOf(side), r: o.pad, t: o.pad, b: o.pad }); }
+    // labels that would touch: the more important one stays
+    const kept = [];
+    for (const l of side.slice().sort((a, b) => a.pri - b.pri)) if (kept.every(k => Math.abs(k.y - l.y) * fit.s >= (two(k) + two(l)) / 2 + 3)) kept.push(l);
+    const x = p.ext.x0 - o.gap / fit.s, labels = [];
+    const put = (t, y, px, fill, weight) => labels.push({ t, tf: 'translate(' + x.toFixed(4) + ' ' + y.toFixed(4) + ') scale(' + (px / 10 / fit.s).toFixed(6) + ')', s: { font: weight + ' 10px ' + o.font, fill }, px });
+    for (const l of kept.sort((a, b) => a.y - b.y)) {
+      if (l.sub) { put(l.t, l.y - (o.sub + 3) / 2 / fit.s, o.px, '#47515C', 600); put(l.sub, l.y + (o.px + 3) / 2 / fit.s, o.sub, '#7E8893', 500); }
+      else put(l.t, l.y, o.px, '#47515C', 600);
+    }
+    return { vb: fit.vb, s: fit.s, labels, gutter: gutterOf(side) };
+  }
+  /** Sizes, in pixels, of the drawings that are fitted to their box (elements marked data-fit="name"). A
+   *  drawing is laid out again whenever its box changes: window resized, tablet turned, panel opened. */
+  _watchFit() {
+    if (typeof document === 'undefined' || !document || !document.querySelectorAll) return;
+    this._fit = this._fit || {};
+    const read = () => {
+      let changed = false;
+      for (const el of document.querySelectorAll('[data-fit]')) {
+        const r = el.getBoundingClientRect(), k = el.getAttribute('data-fit'), w = Math.round(r.width), h = Math.round(r.height);
+        if (w > 0 && h > 0 && (!this._fit[k] || this._fit[k].w !== w || this._fit[k].h !== h)) { this._fit[k] = { w, h }; changed = true; }
+      }
+      if (changed) this.setState(s => ({ fitTick: (s.fitTick || 0) + 1 }));
+    };
+    if (!this._fitRO && typeof ResizeObserver !== 'undefined') this._fitRO = new ResizeObserver(read);
+    for (const el of document.querySelectorAll('[data-fit]')) if (!el.__pbFit) { el.__pbFit = true; if (this._fitRO) this._fitRO.observe(el); }
+    if (!this._fitWin && typeof window !== 'undefined' && window && window.addEventListener) { this._fitWin = true; window.addEventListener('resize', read); }
+    read();
+  }
+  fitOf(name, w, h) { const f = this._fit && this._fit[name]; return f || { w, h }; }
+
   bandXY(e) {
     const c = this.calc();
     if (c.invalid || !this.D || !c.paths || !c.paths.vb) return null;
     const r = e.currentTarget.getBoundingClientRect();
-    const vb = c.paths.vb.split(' ').map(Number);
+    // the drawing is shown through the viewBox the layout gave it (see bandLayout), so that is the one to invert
+    const shown = e.currentTarget.getAttribute && e.currentTarget.getAttribute('viewBox');
+    const vb = (shown || c.paths.vb).split(/[ ,]+/).map(Number);
     const sc = Math.min(r.width / vb[2], r.height / vb[3]);
     if (!(sc > 0)) return null;
     return {
@@ -1405,8 +1470,8 @@ class Component extends DCLogic {
     return ((this.markKey(st.mark) || 'part') + '_' + c.sec.label + '_' + (c.L ? Math.round((c.OAL || c.L) * 16) / 16 : 0) + 'in').replace(/[^\w.-]+/g, '-').replace(/[-.]+$/, '');
   }
 
-  componentDidMount() { this._syncSel(); this._start(); }
-  componentDidUpdate() { this._normLen(); this._syncSel(); this._queue(); this._persist(); }
+  componentDidMount() { this._syncSel(); this._start(); this._watchFit(); }
+  componentDidUpdate() { this._normLen(); this._syncSel(); this._queue(); this._persist(); this._watchFit(); }
   _syncSel() { document.querySelectorAll('select[data-sv]').forEach(el => { const v = el.getAttribute('data-sv'); if (v != null && el.value !== v) el.value = v; }); }
   async _start() {
     if (this._starting) return;
@@ -1828,11 +1893,16 @@ class Component extends DCLogic {
       lines.name = 'cut_edges';
       g.add(lines);
     }
-    if (this._framed) {
+    // The view is kept while a part is being worked on (adding a hole must not swing the picture round), but
+    // not when the part itself has changed size: a 24 ft piece cut down to 3 ft would be left as a speck, and a
+    // short piece made long would run off the picture. Past a fifth longer, shorter or fatter it is framed again.
+    const nowLen = c.OAL || c.L || 0, nowGirth = Component.envelope(c.sec) || 0, was = this._framedAt;
+    const resized = !!was && (Math.abs(nowLen - was.len) > .2 * was.len || Math.abs(nowGirth - was.girth) > .2 * was.girth);
+    if (this._framed && !resized) {
       const cp = stage._camera.position.clone(), ct = stage._controls.target.clone();
       stage.setObject(g);
       stage._camera.position.copy(cp); stage._controls.target.copy(ct); stage._controls.update();
-    } else { stage.setObject(g); this._framed = true; }
+    } else { stage.setObject(g); this._framed = true; this._framedAt = { len: nowLen, girth: nowGirth }; }
     this._bk = bKey;
   }
 
@@ -2843,15 +2913,19 @@ class Component extends DCLogic {
     const faceLbl = (h) => c.kind === 'round' ? h.deg + '°' : c.kind === 'box' ? h.face + ' ' + this.fmtIn(h.off) : c.kind === 'angl' ? (h.face === 'vleg' ? 'V-LEG g' : 'H-LEG g') + this.fmtIn(h.c) : h.face.toUpperCase() + ' ' + this.fmtIn(h.c);
     const hdrTxt = (E) => { const hh = c.kind === 'round' && E && E.mode === 'saddle' ? this.headerHole(E, c.sec) : null; return hh ? ' — HEADER HOLE ' + this.fmtIn(hh.along) + ' ALONG × ' + this.fmtIn(hh.around) + ' AROUND (SEPARATE HDR-HOLE DXF)' : ''; };
     const rows = c.holes.map(h => '<tr><td>' + h.grp + '</td><td>' + faceLbl(h) + '</td><td>' + h.type.toUpperCase() + '</td><td>Ø' + this.fr16(h.dia) + (h.slotL ? ' × ' + this.fmtIn(h.slotL) + ' (' + (h.ax === 'x' ? 'ALONG' : 'ACROSS') + ')' : '') + '</td><td>' + this.fmtIn(h.x - c.x0) + '</td><td>' + (h.ok ? 'OK' : '<span style="color:#D2402F;font-weight:700">CHECK</span>') + '</td></tr>').join('');
-    const svg = '<svg viewBox="' + p.vb + '" style="width:100%;display:block">' +
-      '<path d="' + p.gridP + '" stroke="#ddd" stroke-width="' + p.swThin + '" fill="none"/>' +
-      '<path d="' + p.refP + '" stroke="#bbb" stroke-width="' + p.swThin + '" fill="none"/>' +
-      '<path d="' + p.wpP + '" stroke="#888" stroke-width="' + p.swThin + '" stroke-dasharray="' + p.dash + '" fill="none"/>' +
-      '<path d="' + p.outAP + '" fill="#f2f2f2" stroke="#111" stroke-width="' + p.sw + '"/>' +
-      '<path d="' + p.outBP + '" fill="#f2f2f2" stroke="#111" stroke-width="' + p.sw + '"/>' +
-      '<path d="' + p.outCP + '" fill="#f2f2f2" stroke="#111" stroke-width="' + p.sw + '"/>' +
-      '<path d="' + p.holesP + '" fill="none" stroke="#7A9A24" stroke-width="' + p.sw + '"/>' +
-      p.lbls.map(b => '<text x="' + b.x + '" y="' + b.y + '" font-size="' + p.fs + '" fill="#555" font-family="monospace">' + esc(b.t) + '</text>').join('') + '</svg>';
+    // the flat drawing on the ticket: fitted to the width of the page, never taller than about 2 3/4 in,
+    // labels a fixed size in the margin beside the part (the same layout as on screen)
+    const TW = 720, TH = Math.round(Math.max(110, Math.min(260, 16 + (TW - 140) * (p.ext.y1 - p.ext.y0) / (p.ext.x1 - p.ext.x0)))), tk = this.bandLayout(p, TW, TH, { font: 'monospace' });
+    const ns = ' vector-effect="non-scaling-stroke"';
+    const svg = '<svg viewBox="' + tk.vb + '" style="width:100%;display:block;aspect-ratio:' + TW + '/' + TH + '">' +
+      '<path d="' + p.gridP + '" stroke="#ddd" stroke-width=".7" fill="none"' + ns + '/>' +
+      '<path d="' + p.refP + '" stroke="#bbb" stroke-width=".7" fill="none"' + ns + '/>' +
+      '<path d="' + p.wpP + '" stroke="#888" stroke-width=".7" stroke-dasharray="5 4" fill="none"' + ns + '/>' +
+      '<path d="' + p.outAP + '" fill="#f2f2f2" stroke="#111" stroke-width="1.3"' + ns + '/>' +
+      '<path d="' + p.outBP + '" fill="#f2f2f2" stroke="#111" stroke-width="1.3"' + ns + '/>' +
+      '<path d="' + p.outCP + '" fill="#f2f2f2" stroke="#111" stroke-width="1.3"' + ns + '/>' +
+      '<path d="' + p.holesP + '" fill="none" stroke="#7A9A24" stroke-width="1.3"' + ns + '/>' +
+      tk.labels.map(b => '<text transform="' + b.tf + '" text-anchor="end" dominant-baseline="central" style="font:' + b.s.font + ';fill:' + b.s.fill + '">' + esc(b.t) + '</text>').join('') + '</svg>';
     const payload = this.encodeCfg(this.snapshot());
     return '<!DOCTYPE html><html><head><meta charset="utf-8"><title>CUT TICKET ' + esc(st.mark) + '</title><style>' + this._ticketCss() + '</style></head><body>' +
       this._ticketTop('Cut Ticket', (st.job ? 'JOB <b>' + esc(st.job) + '</b><br>' : '') + new Date().toLocaleDateString() + '<br>TRUE SIZE — KERF STAYS IN CAM') +
@@ -2859,8 +2933,8 @@ class Component extends DCLogic {
       '<tr><td class="big">' + esc(st.mark || '—') + '</td><td class="big">' + st.qty + '</td><td>' + this.matRec().label + '</td><td>' + this.famLabel() + ' ' + c.sec.label + '</td><td class="hv big">' + this.fmtFtIn(c.OAL || c.L) + '</td><td>' + this.fmtFtIn(c.SP) + '</td><td>' + c.wt.toFixed(0) + ' LB</td></tr></table>' +
       '<h2>End prep</h2>' +
       '<table><tr><th style="width:72px">End</th><th>Prep</th></tr>' +
-      '<tr><td class="big">A · LEFT</td><td>' + this.endSpecText(c.A, c.sec) + hdrTxt(c.A) + '</td></tr>' +
-      '<tr><td class="big">B · RIGHT</td><td>' + this.endSpecText(c.B, c.sec) + hdrTxt(c.B) + '</td></tr></table>' +
+      '<tr><td class="big" style="white-space:nowrap">A · LEFT</td><td>' + this.endSpecText(c.A, c.sec) + hdrTxt(c.A) + '</td></tr>' +
+      '<tr><td class="big" style="white-space:nowrap">B · RIGHT</td><td>' + this.endSpecText(c.B, c.sec) + hdrTxt(c.B) + '</td></tr></table>' +
       (c.warns.length ? '<div class="flags"><b>Check before cutting</b>' + c.warns.map(x => '<div>■ ' + esc(x.t) + '</div>').join('') + '</div>' : '') +
       '<h2>What the laser cuts <span class="sub">' + (c.kind === 'round' || c.kind === 'box' ? 'TRUE SIZE · X ALONG THE STICK · Y WRAPS FROM THE BOTTOM SEAM (' + (c.kind === 'round' ? '180°' : 'BOTTOM FACE CL') + ') · TOP OF PART AT MID-BAND' : 'TRUE SIZE · EACH FACE ITS OWN BAND') + '</span></h2>' +
       '<div class="drawing">' + svg + '</div>' +
@@ -3180,9 +3254,9 @@ class Component extends DCLogic {
     const errList = c.warns.filter(w => w.lvl === 'err');
     const markBad = this.formIssues().join(' '), moreErr = (c.errCount || 0) - errList.length;
     const fsOn = !!st.fsName && this._fsSupported(), rv = st.review ? this.reviewInfo(st.review) : null;
-    // Labels on the flat drawings are sized in inches (a fraction of an inch tall). A browser will not draw
-    // text that small, so each label is set at 10 px and scaled down into place instead.
-    const drawLbl = (bl) => { const m = /([\d.]+)px/.exec((bl.s && bl.s.font) || ''), k = (m ? parseFloat(m[1]) : 1) * 2 / 10; return Object.assign({}, bl, { tf: 'translate(' + bl.x + ' ' + bl.y + ') scale(' + k + ')', s: Object.assign({}, bl.s, { font: ((bl.s && bl.s.font) || '500 10px monospace').replace(/[\d.]+px/, '10px') }) }); };
+    // The flat drawing is fitted to its real size on screen: labels a fixed 11 px in a margin beside the
+    // part, lines a fixed weight. (Sizing them in inches made them grow with the length of the part.)
+    const band = this.bandLayout(p, this.fitOf('band', 1000, 220).w, this.fitOf('band', 1000, 220).h), bandWide = this.fitOf('band', 1000, 220).w >= 620;
     // The line under the save button ("Saved ...") belongs to the part it was written for: it goes away as
     // soon as anything on the form changes, so an old "Saved" is never read as covering the part now on screen.
     const noteKey = c.key + '|' + st.mark + '|' + st.qty + '|' + st.job;
@@ -3475,10 +3549,14 @@ class Component extends DCLogic {
       spinLbl: (st.spin ? 'Stop spin' : 'Spin'),
       spinBtnS: this.hudBtn(st.spin),
       bandTitle: c.kind === 'round' ? 'Flat layout — pipe opened out flat' : c.kind === 'box' ? 'Flat layout — tube opened out flat' : 'Flat layout — each face',
-      bandLegend: st.hovL ? st.hovL : (c.kind === 'round' ? 'Middle = top of the pipe \u00B7 top and bottom edge = the seam \u00B7 lines every 12\u2033' : c.kind === 'box' ? 'Middle = top face \u00B7 top and bottom edge = the seam \u00B7 lines every 12\u2033' : 'Lines every 12\u2033'),
-      bandLegendS: { font: st.hovL ? '700 12px/1 JetBrains Mono, monospace' : '500 12px/1 JetBrains Mono, monospace', color: st.hovL ? '#1F3A5F' : '#6B7480', whiteSpace: 'nowrap' },
-      vb: p.vb, gridP: p.gridP, refP: p.refP, wpP: p.wpP, outAP: p.outAP, outBP: p.outBP, outCP: p.outCP, holesP: p.holesP,
-      bandLbls: (p.lbls || []).map(drawLbl), sw: p.sw, swThin: p.swThin, dash: p.dash,
+      // Wide drawing: the labels beside it say what is where, so the line above only gives the grid. Narrow
+      // drawing (phone, or the job list open beside it): the labels are short, so the line above explains
+      // them, on two lines of fixed height so nothing jumps when the pointer moves over the drawing.
+      bandLegend: st.hovL ? st.hovL : (bandWide ? 'Grid lines every 12\u2033' : c.kind === 'round' ? 'Middle = top of the pipe \u00B7 top and bottom edge = the seam \u00B7 lines every 12\u2033' : c.kind === 'box' ? 'Middle = top face \u00B7 top and bottom edge = the seam \u00B7 lines every 12\u2033' : 'Lines every 12\u2033'),
+      bandLegendS: Object.assign({ font: (st.hovL ? '700' : '500') + ' 12px/' + (bandWide ? '1.2' : '1.4') + ' JetBrains Mono, monospace', color: st.hovL ? '#1F3A5F' : '#6B7480' }, bandWide ? { whiteSpace: 'nowrap', textAlign: 'right' } : { whiteSpace: 'normal', minHeight: '34px', maxHeight: '34px' }),
+      bhS: bandWide ? {} : { flexDirection: 'column', gap: '4px', alignItems: 'flex-start' },
+      vb: band.vb, gridP: p.gridP, refP: p.refP, wpP: p.wpP, outAP: p.outAP, outBP: p.outBP, outCP: p.outCP, holesP: p.holesP,
+      bandLbls: band.labels, sw: 1.4, swThin: .8, dash: '5 4',
       endASpec: c.invalid || !c.A ? '\u2014' : this.endSpecText(c.A, c.sec),
       endBSpec: c.invalid || !c.B ? '\u2014' : this.endSpecText(c.B, c.sec),
       holeChip: nOK ? Object.entries(byDia).map(([k, v]) => v + '\u00D7 ' + k).join('  ') : 'NO HOLES',
@@ -3554,13 +3632,12 @@ class Component extends DCLogic {
         for (const cv of hcv.curves) holesP += 'M' + cv.pts.map(p => p[0].toFixed(2) + ' ' + p[1].toFixed(2)).join('L') + 'Z';
         let refP = '';
         for (const fr of [0, .25, .5, .75, 1]) refP += 'M' + px0.toFixed(1) + ' ' + (hcv.W * fr).toFixed(2) + 'H' + px1.toFixed(1);
-        const fs = Math.max(span, hcv.W * 2) / 60;
+        const box = this.fitOf('hb', 400, 90), fit = this.fitBox({ x0: px0, x1: px1, y0: 0, y1: hcv.W }, box.w, box.h, { l: 6, r: 6, t: 16, b: 6 });
         return {
-          vb: px0.toFixed(1) + ' ' + (-fs * 1.6).toFixed(1) + ' ' + span.toFixed(1) + ' ' + (hcv.W + fs * 3).toFixed(1),
-          holesP, refP,
-          wpP: 'M0 ' + (-fs * .8).toFixed(1) + 'V' + (hcv.W + fs * .8).toFixed(1),
-          sw: span / 400,
-          lbls: hcv.curves.map(cv => drawLbl({ x: (cv.x0 + cv.x1) / 2 - fs * .6, y: -fs * .4, t: 'B' + cv.b.id, s: { font: '500 ' + fs.toFixed(2) + 'px JetBrains Mono, monospace', fill: '#1F3A5F' } }))
+          vb: fit.vb, holesP, refP,
+          wpP: 'M0 ' + (-4 / fit.s).toFixed(3) + 'V' + (hcv.W + 4 / fit.s).toFixed(3),
+          sw: 1.2,
+          lbls: hcv.curves.map(cv => ({ t: 'B' + cv.b.id, tf: 'translate(' + ((cv.x0 + cv.x1) / 2).toFixed(3) + ' ' + (-9 / fit.s).toFixed(3) + ') scale(' + (1 / fit.s).toFixed(6) + ')', s: { font: '600 10px JetBrains Mono, monospace', fill: '#1F3A5F' } }))
         };
       })(),
       hbDxf: () => {

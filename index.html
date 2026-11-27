@@ -372,9 +372,9 @@
                 </div>
               </sc-if>
 
-              <div class="row between">
+              <div class="row between wrap">
                 <span class="note">{{ hg.chip }}</span>
-                <div class="row">
+                <div class="row wrap" style="justify-content:flex-end;margin-left:auto">
                   <sc-if value="{{ hg.canCopyOpp }}" hint-placeholder-val="{{ false }}"><button class="btn sm" onClick="{{ hg.copyOpp }}" title="Duplicate this hole on the opposite face">Copy to other side</button></sc-if>
                   <button onClick="{{ hg.center }}" title="Center the pattern along the part length" style="{{ hg.cenS }}">Center on length</button>
                 </div>
@@ -448,11 +448,11 @@
           <div class="row between editbar"><span>{{ editNote }}</span><button class="btn sm ghost" onClick="{{ cancelEdit }}" title="Keep what is on screen but stop editing the job-list part">Stop editing</button></div>
         </sc-if>
         <div class="row end">
-          <label class="f" style="width:72px;flex:none"><span>Job #</span><input value="{{ job }}" onChange="{{ onJob }}" placeholder="2611"></label>
-          <label class="f" style="width:80px;flex:none"><span>Part mark</span><input value="{{ mark }}" onChange="{{ onMark }}"></label>
-          <label class="f" style="width:54px;flex:none"><span>Qty</span><input type="number" min="1" value="{{ qty }}" onChange="{{ onQty }}"></label>
-          <button class="btn grow" style="height:36px;padding:9px 8px" onClick="{{ addToJob }}" disabled="{{ addOff }}">{{ addLbl }}</button>
+          <label class="f" style="flex:1 1 72px;min-width:0"><span>Job #</span><input value="{{ job }}" onChange="{{ onJob }}" placeholder="2611"></label>
+          <label class="f" style="flex:2 1 120px;min-width:0"><span>Part mark</span><input value="{{ mark }}" onChange="{{ onMark }}"></label>
+          <label class="f" style="width:76px;flex:none"><span>Qty</span><input type="number" min="1" value="{{ qty }}" onChange="{{ onQty }}"></label>
         </div>
+        <button class="btn" style="height:36px;padding:9px 10px" onClick="{{ addToJob }}" disabled="{{ addOff }}"><span class="ell">{{ addLbl }}</span></button>
         <sc-if value="{{ editing }}" hint-placeholder-val="{{ false }}">
           <button class="btn sm ghost" style="align-self:flex-end" onClick="{{ addAsNew }}" disabled="{{ invalid }}">Add as a new part instead</button>
         </sc-if>
@@ -479,20 +479,20 @@
         </sc-if>
       </div>
       <div class="band">
-        <div class="bh">
+        <div class="bh" style="{{ bhS }}">
           <b>{{ bandTitle }}</b>
           <span style="{{ bandLegendS }}">{{ bandLegend }}</span>
         </div>
-        <svg viewBox="{{ vb }}" preserveAspectRatio="xMidYMid meet" onClick="{{ onBand }}" onMouseDown="{{ onBandDown }}" onMouseMove="{{ onBandMove }}" onMouseLeave="{{ onBandLeave }}">
-          <path d="{{ gridP }}" stroke="#E9ECEF" stroke-width="{{ swThin }}" fill="none"></path>
-          <path d="{{ refP }}" stroke="#D3D9DF" stroke-width="{{ swThin }}" fill="none"></path>
-          <path d="{{ wpP }}" stroke="#9AA4AE" stroke-width="{{ swThin }}" stroke-dasharray="{{ dash }}" fill="none"></path>
-          <path d="{{ outAP }}" fill="#EEF1F4" stroke="#14181D" stroke-width="{{ sw }}"></path>
-          <path d="{{ outBP }}" fill="#EEF1F4" stroke="#14181D" stroke-width="{{ sw }}"></path>
-          <path d="{{ outCP }}" fill="#EEF1F4" stroke="#14181D" stroke-width="{{ sw }}"></path>
-          <path d="{{ holesP }}" fill="#FFFFFF" stroke="#1D5FBF" stroke-width="{{ sw }}"></path>
-          <sc-if value="{{ hovOn }}" hint-placeholder-val="{{ false }}"><path d="{{ hovP }}" fill="none" stroke="#C2410C" stroke-width="{{ swThin }}" stroke-dasharray="{{ dash }}" pointer-events="none"></path></sc-if>
-          <sc-for list="{{ bandLbls }}" as="bl" hint-placeholder-count="2"><text transform="{{ bl.tf }}" style="{{ bl.s }}">{{ bl.t }}</text></sc-for>
+        <svg data-fit="band" viewBox="{{ vb }}" preserveAspectRatio="xMidYMid meet" onClick="{{ onBand }}" onMouseDown="{{ onBandDown }}" onMouseMove="{{ onBandMove }}" onMouseLeave="{{ onBandLeave }}">
+          <path d="{{ gridP }}" stroke="#E9ECEF" stroke-width="{{ swThin }}" fill="none" vector-effect="non-scaling-stroke"></path>
+          <path d="{{ refP }}" stroke="#D3D9DF" stroke-width="{{ swThin }}" fill="none" vector-effect="non-scaling-stroke"></path>
+          <path d="{{ wpP }}" stroke="#9AA4AE" stroke-width="{{ swThin }}" stroke-dasharray="{{ dash }}" fill="none" vector-effect="non-scaling-stroke"></path>
+          <path d="{{ outAP }}" fill="#EEF1F4" stroke="#14181D" stroke-width="{{ sw }}" vector-effect="non-scaling-stroke"></path>
+          <path d="{{ outBP }}" fill="#EEF1F4" stroke="#14181D" stroke-width="{{ sw }}" vector-effect="non-scaling-stroke"></path>
+          <path d="{{ outCP }}" fill="#EEF1F4" stroke="#14181D" stroke-width="{{ sw }}" vector-effect="non-scaling-stroke"></path>
+          <path d="{{ holesP }}" fill="#FFFFFF" stroke="#1D5FBF" stroke-width="{{ sw }}" vector-effect="non-scaling-stroke"></path>
+          <sc-if value="{{ hovOn }}" hint-placeholder-val="{{ false }}"><path d="{{ hovP }}" fill="none" stroke="#C2410C" stroke-width="{{ swThin }}" stroke-dasharray="{{ dash }}" pointer-events="none" vector-effect="non-scaling-stroke"></path></sc-if>
+          <sc-for list="{{ bandLbls }}" as="bl" hint-placeholder-count="2"><text transform="{{ bl.tf }}" style="{{ bl.s }}" text-anchor="end" dominant-baseline="central" pointer-events="none">{{ bl.t }}</text></sc-for>
         </svg>
         <div class="bf">
           <span>A ▸ {{ endASpec }}</span>
@@ -702,11 +702,11 @@
                   </div>
                 </sc-for>
                 <sc-if value="{{ hbPrevOn }}" hint-placeholder-val="{{ false }}">
-                  <svg viewBox="{{ hbPrev.vb }}" preserveAspectRatio="xMidYMid meet" style="width:100%;height:90px;background:var(--sunk);border:1px solid var(--line);border-radius:6px">
-                    <path d="{{ hbPrev.refP }}" stroke="#D3D9DF" stroke-width="{{ hbPrev.sw }}" fill="none"></path>
-                    <path d="{{ hbPrev.wpP }}" stroke="#9AA4AE" stroke-width="{{ hbPrev.sw }}" fill="none"></path>
-                    <path d="{{ hbPrev.holesP }}" fill="rgba(29,95,191,.10)" stroke="#1D5FBF" stroke-width="{{ hbPrev.sw }}"></path>
-                    <sc-for list="{{ hbPrev.lbls }}" as="bl" hint-placeholder-count="0"><text transform="{{ bl.tf }}" style="{{ bl.s }}">{{ bl.t }}</text></sc-for>
+                  <svg data-fit="hb" viewBox="{{ hbPrev.vb }}" preserveAspectRatio="xMidYMid meet" style="width:100%;height:90px;background:var(--sunk);border:1px solid var(--line);border-radius:6px">
+                    <path d="{{ hbPrev.refP }}" stroke="#D3D9DF" stroke-width="{{ hbPrev.sw }}" fill="none" vector-effect="non-scaling-stroke"></path>
+                    <path d="{{ hbPrev.wpP }}" stroke="#9AA4AE" stroke-width="{{ hbPrev.sw }}" fill="none" vector-effect="non-scaling-stroke"></path>
+                    <path d="{{ hbPrev.holesP }}" fill="rgba(29,95,191,.10)" stroke="#1D5FBF" stroke-width="{{ hbPrev.sw }}" vector-effect="non-scaling-stroke"></path>
+                    <sc-for list="{{ hbPrev.lbls }}" as="bl" hint-placeholder-count="0"><text transform="{{ bl.tf }}" style="{{ bl.s }}" text-anchor="middle" dominant-baseline="central">{{ bl.t }}</text></sc-for>
                   </svg>
                 </sc-if>
                 <sc-for list="{{ hbWarns }}" as="hw" hint-placeholder-count="0"><div class="hint" style="color:var(--warn)">⚠ {{ hw }}</div></sc-for>
