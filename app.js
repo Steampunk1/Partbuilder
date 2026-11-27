@@ -400,6 +400,11 @@ class Component extends DCLogic {
   /** false until a bevelled trial piece has been cut on the shop laser and measured right. While false, the
    *  check card tells whoever saves a bevelled part to measure the first piece. */
   static BEVEL_PROVEN = false;
+  /** Two cut features closer than this (inches of metal left between them) cut as one opening: refused. */
+  static MIN_WEB = 1 / 32;
+  /** Left in a job folder while a save into it is under way, and removed only when every file has been
+   *  written and read back. If it is still there, the folder is not a finished job. */
+  static NOT_READY = 'NOT READY - save in progress - DO NOT CUT.txt';
   /** The circle a section turns in, in inches: OD for round, corner to corner for everything else. */
   static envelope(sec) {
     if (!sec) return 0;
@@ -596,7 +601,7 @@ class Component extends DCLogic {
 
   calc() {
     const st = this.state;
-    const key = JSON.stringify([st.family, st.pnps, st.psch, st.todT, st.twallT, st.hsize, st.hwallT, st.bser, st.bsize, st.cser, st.csize, st.asize, st.athkT, st.cdT, st.cbT, st.ctfT, st.ctwT, st.cwT, st.lenT, st.lenMode, st.ends, st.groups, st.wantHoles, st.mat, this.props.stations, this.props.holeSegs, !!this.D]);
+    const key = JSON.stringify([st.family, st.pnps, st.psch, st.todT, st.twallT, st.hsize, st.hwallT, st.bser, st.bsize, st.cser, st.csize, st.asize, st.athkT, st.cdT, st.cbT, st.ctfT, st.ctwT, st.cwT, st.lenT, st.lenMode, st.ends, st.groups, st.wantHoles, st.mat, st.gripT, this.props.stations, this.props.holeSegs, !!this.D]);
     if (this._c && this._c.key === key) return this._c;
     const sec = this.sec();
     const L = this.parseIn(st.lenT);
@@ -620,6 +625,12 @@ class Component extends DCLogic {
     c.key = key; c.sec = sec;
     { const d2 = (!c.invalid && c.aMin != null && c.bMax != null) ? this.datum(c.aMin, c.bMax, c.L) : [0, c.L || 0]; c.x0 = d2[0]; c.x1 = d2[1]; }
     if (this.D) for (const t of this.inputErrs(c)) (c.warns = c.warns || []).push({ lvl: 'err', t });
+    if (this.D && !c.invalid) this.holeClashes(c);
+    if (this.D && !c.invalid) {
+      // a stick keeps a length in the chuck that cannot be cut: a piece longer than the longest stick less that grip comes out of no stick
+      const grip = this.parseIn(st.gripT) || 6, over = c.OAL || c.L || 0, longest = Component.LASER.maxLen;
+      if (isFinite(longest) && over <= longest + 1e-6 && over > longest - grip + 1e-6) (c.warns = c.warns || []).push({ lvl: 'warn', t: 'This piece is ' + this.fmtFtIn(over) + '. The chuck holds ' + this.fmtIn(grip) + ' of every stick, so it needs a ' + (+(over + grip).toFixed(3)) + '\u2033 stick \u2014 the longest is ' + this.fmtFtIn(longest) + ' (' + longest + '\u2033). Check the chuck grip, or shorten the piece to ' + this.fmtFtIn(longest - grip) + ' or less.' });
+    }
     if (this.D && !c.invalid) {
       // the 14 in limit is the circle the piece turns in: square / rect tube, beam, channel and angle are measured corner to corner
       const s2 = c.sec || {}, lim = Component.LASER.maxOD, env = s2.kind === 'round' ? 0 : Component.envelope(s2);
@@ -857,6 +868,75 @@ class Component extends DCLogic {
       if (x - hx < a[k] + margin || x + hx > b[k] - margin) return false;
     }
     return true;
+  }
+  /** The outline of one hole in the flat of the face it is cut in: [[along, across], ...]. */
+  holeOutline(c, h) {
+    const v = (c.kind === 'round' || c.kind === 'box') ? h.u : h.c;
+    return h.slotL ? this.slotPts(h.x, v, h.slotL, h.dia, h.ax === 'x', 24, false) : h.uh ? this.pipeHolePts(h, 96, false) : this.circPts(h.x, v, h.dia / 2, 96, false);
+  }
+  /** One hole in shop words: "Ø1 hole 6″ from End A at 0°". */
+  holeName(c, h) {
+    const what = h.slotL ? this.fr16(h.dia) + '\u00D7' + this.fmtIn(h.slotL) + ' slot' : '\u00D8' + this.fr16(h.dia) + ' hole';
+    const where = c.kind === 'round' ? 'at ' + (+(+h.deg).toFixed(2)) + '\u00B0'
+      : c.kind === 'box' ? 'on the ' + ({ T: 'top', B: 'bottom', L: 'left', R: 'right' }[h.face] || h.face) + ' face'
+      : 'in the ' + ({ web: 'web', tf: 'top flange', bf: 'bottom flange', vleg: 'vertical leg', hleg: 'horizontal leg' }[h.face] || h.face);
+    return what + ' ' + this.fmtIn(h.x - (c.x0 || 0)) + ' from End A ' + where;
+  }
+  /** Every cut feature against every other on the same face, whichever hole set it came from. Two that
+   *  overlap, touch, or leave less than MIN_WEB of metal between them would cut as ONE opening: a red item.
+   *  Less metal between them than the wall is thick: a caution. Both are marked on the flat drawing. */
+  holeClashes(c) {
+    const st = this.state, hs = (c.holes || []).filter(h => h.ok);
+    if (hs.length < 2) return;
+    const flat = c.kind === 'round' || c.kind === 'box', wrap = flat ? c.wrap : 0;
+    const items = hs.map(h => { const P = this.holeOutline(c, h); let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9; for (const q of P) { x0 = Math.min(x0, q[0]); x1 = Math.max(x1, q[0]); y0 = Math.min(y0, q[1]); y1 = Math.max(y1, q[1]); } return { h, P, x0, x1, y0, y1, face: flat ? 'wall' : h.face, row: flat ? h.u : h.c }; }).sort((a, b) => a.x0 - b.x0);
+    const wallOf = (h) => c.kind === 'round' ? c.sec.ro - c.sec.ri : c.kind === 'plate' ? (h.face === 'web' ? c.sec.tw : c.sec.tf) : c.sec.t;
+    const segD = (p, a, b) => { const dx = b[0] - a[0], dy = b[1] - a[1], l2 = dx * dx + dy * dy; let t = l2 ? ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / l2 : 0; t = t < 0 ? 0 : t > 1 ? 1 : t; return Math.hypot(a[0] + dx * t - p[0], a[1] + dy * t - p[1]); };
+    const inside = (p, P) => { let sg = 0; for (let i = 0; i < P.length; i++) { const a = P[i], b = P[(i + 1) % P.length], cr = (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]); if (Math.abs(cr) < 1e-12) continue; const g = cr > 0 ? 1 : -1; if (sg && g !== sg) return false; sg = g; } return true; };
+    const cross = (a, b, p, q) => { const d = (u, v, w) => (v[0] - u[0]) * (w[1] - u[1]) - (v[1] - u[1]) * (w[0] - u[0]); const d1 = d(a, b, p), d2 = d(a, b, q), d3 = d(p, q, a), d4 = d(p, q, b); return ((d1 > 0) !== (d2 > 0)) && ((d3 > 0) !== (d4 > 0)); };
+    /** Metal left between two outlines (inches); -1 where they overlap. dy: the second one moved round the part by this much. */
+    const gapOf = (A, B, dy) => {
+      const Q = dy ? B.map(q => [q[0], q[1] + dy]) : B;
+      if (A.some(p => inside(p, Q)) || Q.some(p => inside(p, A))) return -1;
+      for (let i = 0; i < A.length; i++) for (let j = 0; j < Q.length; j++) if (cross(A[i], A[(i + 1) % A.length], Q[j], Q[(j + 1) % Q.length])) return -1;
+      let m = Infinity;
+      for (const p of A) for (let j = 0; j < Q.length; j++) m = Math.min(m, segD(p, Q[j], Q[(j + 1) % Q.length]));
+      for (const p of Q) for (let j = 0; j < A.length; j++) m = Math.min(m, segD(p, A[j], A[(j + 1) % A.length]));
+      return m;
+    };
+    const setNo = (h) => st.groups.length > 1 ? st.groups.findIndex(g => g.id === h.grp) + 1 : 0;
+    const hard = [], thin = [];
+    for (let i = 0; i < items.length; i++) {
+      const A = items[i];
+      for (let j = i + 1; j < items.length; j++) {
+        const B = items[j];
+        if (B.x0 > A.x1 + 2) break;                                       // sorted by where they start: nothing further along can reach back
+        if (A.face !== B.face) continue;
+        const reach = Math.max(wallOf(A.h), Component.MIN_WEB) + 1e-6;
+        let gap = Infinity;
+        for (const dy of (wrap ? [0, wrap, -wrap] : [0])) {               // round the part as well: either side of the seam
+          if (B.y0 + dy > A.y1 + reach || B.y1 + dy < A.y0 - reach || B.x0 > A.x1 + reach) continue;
+          gap = Math.min(gap, gapOf(A.P, B.P, dy));
+        }
+        if (!(gap < reach)) continue;
+        // two holes of one set in one row that overlap: the set's own spacing check has already said so
+        if (gap < 0 && A.h.grp === B.h.grp && Math.abs(A.row - B.row) < 1e-9) continue;
+        (gap < Component.MIN_WEB ? hard : thin).push({ A, B, gap });
+      }
+    }
+    if (!hard.length && !thin.length) return;
+    c.warns = c.warns || [];
+    hard.slice(0, 4).forEach(({ A, B, gap }) => {
+      const a = setNo(A.h), b = setNo(B.h), who = !a ? '' : a === b ? 'Hole set ' + a + ': ' : 'Hole set ' + Math.min(a, b) + ' and hole set ' + Math.max(a, b) + ': ';
+      c.warns.push({ lvl: 'err', t: who + this.holeName(c, A.h) + ' and ' + this.holeName(c, B.h) + (gap < 0 ? ' overlap' : gap < 1e-6 ? ' touch' : ' have only ' + gap.toFixed(3) + '\u2033 of metal between them') + ' \u2014 they run together and would cut as one opening. Move one of them.' });
+    });
+    if (hard.length > 4) c.warns.push({ lvl: 'err', t: (hard.length - 4) + ' more pair' + (hard.length - 4 > 1 ? 's' : '') + ' of holes run together.' });
+    if (!hard.length) thin.slice(0, 2).forEach(({ A, B, gap }) => c.warns.push({ lvl: 'warn', t: 'Only ' + gap.toFixed(3) + '\u2033 of metal between ' + this.holeName(c, A.h) + ' and ' + this.holeName(c, B.h) + ' \u2014 less than the ' + (+wallOf(A.h).toFixed(3)) + '\u2033 ' + (c.kind === 'round' || c.kind === 'box' ? 'wall' : 'steel') + '. Check it will hold.' }));
+    // mark the ones that run together on the flat drawing
+    const map = (h) => (c.paths && c.paths.faceMap && c.paths.faceMap[h.face]) || ((q) => q);
+    let d = '';
+    for (const { A, B } of hard) for (const it of [A, B]) { if (it.h.clash) continue; it.h.clash = true; const f = map(it.h); d += 'M' + it.P.map(q => { const r = f(q); return r[0].toFixed(3) + ' ' + r[1].toFixed(3); }).join('L') + 'Z'; }
+    if (c.paths) c.paths.clashP = d;
   }
   /** The unwrapped outline of a round or square part as [x, round] points: the stations, plus the exact long
    *  and short points where they fall between stations, so the drawing and the flat DXF reach the true ends. */
@@ -1124,7 +1204,7 @@ class Component extends DCLogic {
       gridP, refP: '', wpP,
       outAP: path(tfO, mTf), outBP: path(web, mWeb), outCP: path(bfO, mBf),
       holesP, fs, sw: span / 900 * 1.6, swThin: span / 900, dash: (fs * .5).toFixed(2) + ' ' + (fs * .35).toFixed(2),
-      lbls: [],
+      lbls: [], faceMap: { tf: mTf, web: mWeb, bf: mBf },
       ext: { x0, x1, y0: oTf - .6, y1: H + .6 },
       side: [
         { y: oTf + Wb / 2, t: 'TOP FLANGE', sub: 'from above', ts: 'TOP FLG', pri: 1 },
@@ -1218,7 +1298,7 @@ class Component extends DCLogic {
       gridP, refP: '', wpP,
       outAP: path(vleg, mV), outBP: path(hleg, mH), outCP: '',
       holesP, fs, sw: span / 900 * 1.6, swThin: span / 900, dash: (fs * .5).toFixed(2) + ' ' + (fs * .35).toFixed(2),
-      lbls: [],
+      lbls: [], faceMap: { vleg: mV, hleg: mH },
       ext: { x0, x1, y0: oV - .6, y1: H + .6 },
       side: [
         { y: oV + a / 2, t: 'VERT LEG', sub: 'elevation, heel down', ts: 'VERT', pri: 0 },
@@ -1975,9 +2055,52 @@ class Component extends DCLogic {
       if (typeof text === 'string' && typeof fh.getFile === 'function') {
         const back = await fh.getFile();
         if (back.size !== new TextEncoder().encode(text).length) return false;
+        if (typeof back.text === 'function' && (await back.text()) !== text) return false;
       }
       return h.name + (sub ? ' \u203A ' + sub : '');
     } catch (e) { return false; }
+  }
+  _confirm(msg) { return confirm(msg); }
+  _alert(msg) { alert(msg); }
+  /** A whole job into its folder: all of it, or none of it. A NOT READY file goes in first and comes out
+   *  last, so a folder caught half way says so itself. Each file is read back and compared; the cut list
+   *  goes in after every laser file. If any step fails, everything this save touched is put back the way
+   *  it was (files it replaced get their old contents, files it added are taken out).
+   *  -> { ok: true, where } | { ok: false, state: 'untouched' | 'restored' | 'broken' } */
+  async _fsWriteJob(files) {
+    const h = this._fsDir;
+    if (!h || this.state.fsPerm !== 'granted') return { ok: false, state: 'untouched' };
+    const MARK = Component.NOT_READY, sub = this._jobDirName();
+    let dir; try { dir = await h.getDirectoryHandle(sub, { create: true }); } catch (e) { return { ok: false, state: 'untouched' }; }
+    // what is in a file now: its text; null if it is there but cannot be read; undefined if it is not there
+    const read = async (name) => { let fh; try { fh = await dir.getFileHandle(name, { create: false }); } catch (e) { return undefined; } try { if (typeof fh.getFile !== 'function') return null; const f = await fh.getFile(); return typeof f.text === 'function' ? await f.text() : null; } catch (e) { return null; } };
+    const put = async (name, text) => {
+      const fh = await dir.getFileHandle(name, { create: true }), w = await fh.createWritable();
+      await w.write(text); await w.close();
+      if (typeof fh.getFile !== 'function') return;          // a folder that cannot be read back at all (no browser does this) is taken at its word, as before
+      const f = await fh.getFile();
+      if (f.size !== new TextEncoder().encode(text).length || (typeof f.text === 'function' && (await f.text()) !== text)) throw new Error('read back different from what was written');
+    };
+    const was = new Map(); let marked = false;
+    try {
+      await put(MARK, 'A save into this folder was started ' + new Date().toISOString() + ' and has not finished.\r\nDo not cut from this folder while this file is here. Save the job again from Part Builder.\r\n');
+      marked = true;
+      for (const f of files) { was.set(f.name, await read(f.name)); await put(f.name, f.data); }      // the cut list is last in the list
+      await dir.removeEntry(MARK);
+      return { ok: true, where: h.name + ' \u203A ' + sub };
+    } catch (e) {
+      if (!marked) return { ok: false, state: 'untouched' };
+      let clean = true;
+      for (const [name, old] of was) {
+        try {
+          if (old === undefined) { if ((await read(name)) !== undefined) await dir.removeEntry(name); }      // this save added it: take it out
+          else if (old === null) { clean = false; }                                                        // could not be read before, so cannot be put back
+          else if ((await read(name)) !== old) await put(name, old);                                       // this save replaced it: old contents back
+        } catch (e2) { clean = false; }
+      }
+      if (clean) { try { await dir.removeEntry(MARK); } catch (e2) { clean = false; } }
+      return { ok: false, state: clean ? 'restored' : 'broken' };
+    }
   }
   /** Laser files already sitting in this job's folder that are NOT in `keep`.
    *  An older revision left behind is a part waiting to be cut wrong. With
@@ -2116,34 +2239,49 @@ class Component extends DCLogic {
     return cfg;
   }
 
+  /** Pieces of one section and grade laid on sticks, longest first. A stick keeps `grip` in the chuck, so a
+   *  piece only fits if it is no longer than the stick less the grip. A piece that will not fit is NOT put on
+   *  a stick: it is listed as unplaced, and sticks, utilisation and drop are for the pieces that were placed.
+   *  With no stock picked for a group the list starts on 24 ft, or on the shortest longer stock (40 ft, 42 ft)
+   *  that the longest piece comes out of. A stock picked by hand is kept as picked. */
   nestGroups(partsArg) {
-    const st = this.state, D = this.D;
+    const st = this.state;
     const groups = {};
     for (const p of (partsArg || st.parts)) {
       const k = p.groupKey;
-      if (!groups[k]) groups[k] = { key: k, label: p.groupLabel, cat: p.cat, lens: [], wt: 0 };
-      for (let i = 0; i < p.qty; i++) groups[k].lens.push(p.oal);
+      if (!groups[k]) groups[k] = { key: k, label: p.groupLabel, cat: p.cat, items: [], wt: 0 };
+      for (let i = 0; i < p.qty; i++) groups[k].items.push({ len: p.oal, mark: p.mark || '' });
       groups[k].wt += p.wt * p.qty;
     }
-    const grip = this.parseIn(st.gripT) || 6, gap = .125;
+    const grip = this.parseIn(st.gripT) || 6, gap = .125, longest = Component.LASER.maxLen;
     const out = [];
     for (const k of Object.keys(groups)) {
-      const g = groups[k];
-      const stickIn = Math.min(parseFloat(st.stickSel[k] || '288'), Component.LASER.maxLen);   // a stick longer than the laser's bed is never pulled
+      const g = groups[k], items = g.items.slice().sort((x, y) => y.len - x.len), top = items.length ? items[0].len : 0;
+      const picked = parseFloat(st.stickSel[k]);
+      const stickIn = Math.min(picked > 0 ? picked : ([288, 480, 504].find(L => L <= longest && L - grip >= top - 1e-9) || Math.min(504, longest)), longest);   // a stick longer than the laser's bed is never pulled
       const cap = stickIn - grip;
-      const lens = g.lens.slice().sort((x, y) => y - x);
-      const sticks = [];
-      for (const ln of lens) {
+      const sticks = [], unplaced = [];
+      for (const it of items) {
+        if (it.len > cap + 1e-9) { unplaced.push(it); continue; }
         let placed = false;
-        for (const stk of sticks) { if (stk.used + ln + (stk.n ? gap : 0) <= cap) { stk.used += ln + (stk.n ? gap : 0); stk.n++; placed = true; break; } }
-        if (!placed) sticks.push({ used: ln, n: 1 });
-        if (lens.some(l => l > cap)) g.tooLong = true;
+        for (const stk of sticks) { if (stk.used + it.len + (stk.n ? gap : 0) <= cap + 1e-9) { stk.used += it.len + (stk.n ? gap : 0); stk.n++; placed = true; break; } }
+        if (!placed) sticks.push({ used: it.len, n: 1 });
       }
       const totUsed = sticks.reduce((s2, x) => s2 + x.used, 0);
-      const drop = sticks.length ? cap - sticks[sticks.length - 1].used : 0;
-      out.push({ key: k, label: g.label, cat: g.cat, pieces: g.lens.length, wt: g.wt, sticks: sticks.length, stickIn, util: sticks.length ? totUsed / (sticks.length * cap) : 0, drop, tooLong: !!g.tooLong });
+      const drop = sticks.length ? Math.max(0, cap - sticks[sticks.length - 1].used) : 0;
+      out.push({ key: k, label: g.label, cat: g.cat, pieces: items.length, placed: items.length - unplaced.length, unplaced, wt: g.wt, sticks: sticks.length, stickIn, cap, grip,
+        util: sticks.length ? totUsed / (sticks.length * cap) : 0, drop, tooLong: unplaced.length > 0 });
     }
     return out;
+  }
+  /** In shop words, the pieces of one group that come out of no stick as it is set up, or ''. */
+  unplacedText(n) {
+    if (!n || !n.unplaced.length) return '';
+    const by = {}; for (const u of n.unplaced) { const k = (u.mark || 'piece') + '|' + u.len; by[k] = by[k] || { mark: u.mark || 'piece', len: u.len, n: 0 }; by[k].n++; }
+    const list = Object.values(by).map(u => (u.n > 1 ? u.n + ' \u00D7 ' : '') + u.mark + ' (' + this.fmtFtIn(u.len) + ')').join(', ');
+    const most = Math.max(...n.unplaced.map(u => u.len)), longest = Component.LASER.maxLen;
+    return list + ' will not fit: a ' + (n.stickIn / 12) + '\u2032 stick less the ' + this.fmtIn(n.grip) + ' chuck grip leaves ' + (+n.cap.toFixed(3)) + '\u2033. '
+      + (most + n.grip <= longest + 1e-9 ? 'Pick longer stock for this group.' : 'No stick the laser takes is long enough \u2014 it needs ' + (+(most + n.grip).toFixed(3)) + '\u2033. Check the chuck grip or shorten the piece.');
   }
 
   /** OpenCascade engine + solid builder, loaded the first time a TubesT file is asked for. */
@@ -2266,15 +2404,24 @@ class Component extends DCLogic {
    *  take them out so nobody cuts a superseded part. */
   async _saved(names, r, marks) {
     const n = names.length, what = n === 1 ? names[0] : n + ' laser files';
-    if (r.to !== 'folder' && r.folderFailed) { this.setState({ saveOk: false, saveMsg: 'Could not write into the laser folder "' + this.state.fsName + '" (is the file open in TubesT, or OneDrive busy?). ' + (r.zip || what) + ' is in your Downloads folder instead \u2014 move it to the laser folder yourself.' }); return; }
-    if (r.to !== 'folder') { this.setState({ saveOk: true, saveMsg: '\u2713 ' + (r.zip ? r.zip + ' (' + what + ' + cut list)' : what) + ' \u2014 in your Downloads folder. ' + (r.zip ? 'Unzip it into' : 'Move it to') + ' the laser folder.' }); return; }
-    let msg = '\u2713 Saved ' + what + ' \u2192 ' + r.where;
+    // a job released without some of its parts says so, every time, with the marks left out
+    const short = r.part ? ' \u2014 ' + r.part.done + ' of ' + r.part.total + ' parts. LEFT OUT: ' + r.part.left.join(', ') + ' (the cut list says NOT SAVED for ' + (r.part.left.length > 1 ? 'them' : 'it') + ').' : '';
+    if (r.to !== 'folder' && r.folderFailed) {
+      const folder = '"' + this.state.fsName + (r.zip ? ' \u203A ' + this._jobDirName() : '') + '"';
+      const how = r.folderState === 'broken'
+        ? 'The laser folder ' + folder + ' was lost part way through the save and could not be put back. It holds a file named "' + Component.NOT_READY + '" \u2014 DO NOT CUT from that folder. '
+        : 'Could not write ' + (r.zip ? 'the whole job ' : '') + 'into the laser folder ' + folder + ' (is a file open in TubesT, or OneDrive busy?). The folder was left as it was. ';
+      this.setState({ saveOk: false, saveMsg: how + (r.zip || what) + ' is in your Downloads folder instead \u2014 ' + (r.zip ? 'unzip it into' : 'move it to') + ' the laser folder yourself.' + short });
+      return;
+    }
+    if (r.to !== 'folder') { this.setState({ saveOk: !r.part, saveMsg: '\u2713 ' + (r.zip ? r.zip + ' (' + what + ' + cut list)' : what) + ' \u2014 in your Downloads folder. ' + (r.zip ? 'Unzip it into' : 'Move it to') + ' the laser folder.' + short }); return; }
+    let msg = '\u2713 Saved ' + what + ' \u2192 ' + r.where + short;
     const stale = await this._fsStale(names, marks);
-    if (stale.length && confirm('Older laser files are still in ' + r.where + ':\n\n' + stale.join('\n') + '\n\nThey are not what you just saved. Remove them so nobody cuts an old part?\n\nOK = remove them    Cancel = leave them')) {
+    if (stale.length && this._confirm('Older laser files are still in ' + r.where + ':\n\n' + stale.join('\n') + '\n\nThey are not what you just saved. Remove them so nobody cuts an old part?\n\nOK = remove them    Cancel = leave them')) {
       const gone = await this._fsRemove(stale);
       msg += ' \u00B7 ' + gone + ' older file' + (gone === 1 ? '' : 's') + ' removed';
     } else if (stale.length) msg += ' \u00B7 ' + stale.length + ' older file' + (stale.length === 1 ? '' : 's') + ' left in the folder';
-    this.setState({ saveOk: true, saveMsg: msg });
+    this.setState({ saveOk: !r.part, saveMsg: msg });
   }
   /** Ask for the linked folder again if the browser dropped the permission
    *  (it does after a restart). Must run straight from the click. */
@@ -2310,7 +2457,8 @@ class Component extends DCLogic {
       return { kind, dest, noJob: !st.job, one: Object.assign(p, { mark: st.mark, qty: st.qty, file: p.base + ' - QTY ' + st.qty + '.igs' }), rows: [], cautions: p.cautions, bevelIn: p.bevelIn.length > 0, bevelAdd: p.bevelAdd.length > 0, out: 0, n: 1 };
     }
     const rows = st.parts.map(pt => { let p; try { p = this._withPart(pt, line); } catch (e) { p = { bad: true, why: 'its saved setup could not be read', stock: pt.desc, len: pt.lenT2, cautions: [] }; } if (!(pt.qty >= 1)) Object.assign(p, { bad: true, why: 'its quantity is blank' }); return Object.assign(p, { mark: pt.mark, qty: pt.qty }); });
-    return { kind, dest, noJob: !st.job, one: null, rows, cautions: [], bevelIn: rows.some(r => !r.bad && r.bevelIn && r.bevelIn.length), bevelAdd: rows.some(r => !r.bad && r.bevelAdd && r.bevelAdd.length), out: rows.filter(r => r.bad).length, n: rows.filter(r => !r.bad).length };
+    const stock = this.nestGroups().filter(n => n.tooLong).map(n => n.label + ': ' + this.unplacedText(n));
+    return { kind, dest, noJob: !st.job, one: null, rows, cautions: stock, bevelIn: rows.some(r => !r.bad && r.bevelIn && r.bevelIn.length), bevelAdd: rows.some(r => !r.bad && r.bevelAdd && r.bevelAdd.length), out: rows.filter(r => r.bad).length, n: rows.filter(r => !r.bad).length };
   }
   askSave(kind) {
     if (this.state.solidBusy || this.state.jobBusy) return;
@@ -2374,50 +2522,69 @@ class Component extends DCLogic {
     used[nm] = 1;
     return nm + '.igs';
   }
-  /** Every part in the job as a checked IGS solid, zipped with the cut list. */
+  /** Every part in the job as a checked IGS solid, with the cut list.
+   *  1. Every laser file is made in memory first. Nothing is written until it is known what the job holds.
+   *  2. If a part will not make a file, the person is shown its mark and the reason and chooses: release the
+   *     job without it, or save nothing.
+   *  3. The cut list is written from what was actually made, so it never names a file that is not there.
+   *  4. Into the laser folder it is all or nothing (see _fsWriteJob); otherwise one zip to Downloads. */
   async dlJobFiles() {
     const st0 = this.state;
     if (st0.jobBusy || st0.solidBusy) return;
-    if (!st0.parts.length) { alert('No parts in the job yet.'); return; }
-    const files = [], skipped = [], used = {};
+    if (!st0.parts.length) { this._alert('No parts in the job yet.'); return; }
+    const built = [], failed = [], used = {}, fileOf = new Map(), total = st0.parts.length;
     this.setState({ jobBusy: 'Starting…' });
     await new Promise(r => setTimeout(r, 30));
     try {
       let eng = await this._occ();
-      for (let i = 0; i < st0.parts.length; i++) {
+      for (let i = 0; i < total; i++) {
         const pt = st0.parts[i];
-        this.setState({ jobBusy: 'Building ' + (i + 1) + ' of ' + st0.parts.length + '…' });
+        this.setState({ jobBusy: 'Building ' + (i + 1) + ' of ' + total + '…' });
         await new Promise(r => setTimeout(r, 20));
+        // already shown as left out on the check card (red items, or no quantity): not news when it is left out here
+        let known = !(pt.qty >= 1);
+        try { known = known || this._withPart(pt, () => this.blocked(this.calc())); } catch (e) { known = true; }
         try {
           if (!(pt.qty >= 1)) throw new Error('its quantity is blank');
           const f = this._withPart(pt, () => this._solidFile(eng.oc, eng.m, 'igs'));
           const name = this.jobFileName(pt, f.laser, used);
-          files.push({ name, data: f.text });
+          built.push({ name, data: f.text }); fileOf.set(pt, name);
         } catch (e) {
-          skipped.push(pt.mark + ' — ' + (e && e.message ? e.message : e));
+          const why = String(e && e.message ? e.message : e).replace(/\s+/g, ' ').trim();
+          failed.push({ mark: pt.mark, why, known }); fileOf.set(pt, 'NOT SAVED - ' + why);
           this._occP = null; eng = await this._occ();     // an engine error can leave it unusable
         }
       }
-      if (files.length) {
-        const igs = files.map(f => f.name);
-        const csv = this._jobCsv();
-        if (csv) files.push({ name: 'cut list.csv', data: csv });
-        // Linked folder: every file goes straight in, each one read back. If any
-        // one of them will not write, fall back to the zip so nothing is half-saved.
-        let where = '';
-        for (const f of files) { const w = await this._fsWrite(f.name, f.data); if (!w) { where = ''; break; } where = w; }
-        if (where) await this._saved(igs, { to: 'folder', where });
-        else {
-          const job = (st0.job || '').replace(/[^\w.-]+/g, '-');
-          const zipName = (job ? 'JOB-' + job : 'job') + ' - laser files.zip';
-          this._download(this._zip(files), zipName, 'application/zip', true);
-          await this._saved(igs, { to: 'download', zip: zipName, folderFailed: !!this._fsDir && this.state.fsPerm === 'granted' });
+      const list = failed.map(f => f.mark + ' — ' + f.why);
+      if (!built.length) {
+        this.setState({ saveOk: false, saveMsg: 'Nothing was saved: no part in the job would make a laser file. ' + list.join('; ') });
+        this._alert('No files were written.\n\n' + list.join('\n') + '\n\nOpen each one from the job list and fix what is shown in red.');
+        return;
+      }
+      // a part that failed only now, while its file was being made, is news: the person decides with the mark and the reason in front of them
+      if (failed.some(f => !f.known)) {
+        const them = failed.length > 1 ? 'them' : 'it';
+        if (!this._confirm(failed.length + ' of ' + total + ' parts will NOT make a laser file:\n\n' + list.join('\n') + '\n\nSave the other ' + built.length + ' without ' + them + '? The cut list will say NOT SAVED for ' + them + '.\n\nOK = release the job without ' + them + '    Cancel = save nothing')) {
+          this.setState({ saveOk: false, saveMsg: 'Nothing was saved. ' + list.join('; ') + '. Open ' + (failed.length > 1 ? 'each one' : 'it') + ' from the job list and fix what is shown in red, then save the job again.' });
+          return;
         }
       }
-      if (skipped.length) alert((files.length ? 'These parts were left out of the zip:' : 'No files were written.') + '\n\n' + skipped.join('\n') + '\n\nOpen each one from the job list and fix what is shown in red.');
+      const files = built.slice(), igs = built.map(b => b.name), part = failed.length ? { done: built.length, total, left: failed.map(f => f.mark) } : null;
+      const csv = this._jobCsv(fileOf);
+      if (csv) files.push({ name: 'cut list.csv', data: csv });          // last: it goes in after every laser file
+      const linked = !!this._fsDir && this.state.fsPerm === 'granted';
+      const res = linked ? await this._fsWriteJob(files) : { ok: false, state: 'untouched' };
+      if (res.ok) await this._saved(igs, { to: 'folder', where: res.where, part });
+      else {
+        const job = (st0.job || '').replace(/[^\w.-]+/g, '-');
+        const zipName = (job ? 'JOB-' + job : 'job') + ' - laser files.zip';
+        this._download(this._zip(files), zipName, 'application/zip', true);
+        await this._saved(igs, { to: 'download', zip: zipName, folderFailed: linked, folderState: res.state, part });
+      }
     } catch (e) {
       this._occP = null;
-      alert('No files were written.\n\n' + (e && e.message ? e.message : e));
+      this.setState({ saveOk: false, saveMsg: 'Nothing was saved. ' + (e && e.message ? e.message : e) });
+      this._alert('No files were written.\n\n' + (e && e.message ? e.message : e));
     } finally { this.setState({ jobBusy: '' }); }
   }
   /** Plain (stored, uncompressed) ZIP. files: [{ name, data: string | Uint8Array }] -> Blob. */
@@ -2955,7 +3122,7 @@ class Component extends DCLogic {
     const totCost = st.parts.reduce((s, x) => s + x.wt * x.qty * (rates[x.cat] || 0), 0);
     const totPieces = st.parts.reduce((s, x) => s + x.qty, 0);
     const rows = st.parts.map(p => '<tr><td style="width:74px">' + this._qrImg(this.ticketCode(p), 2) + '<div style="font-size:8.5px;color:#5C6670">' + p.code + '</div></td><td class="big">' + esc(p.mark) + '</td><td>' + p.qty + '</td><td>' + esc(p.desc) + '</td><td>' + this.fmtFtIn(p.oal) + '</td><td>' + p.wt.toFixed(0) + '</td><td>' + (p.wt * p.qty).toFixed(0) + '</td></tr>').join('');
-    const nrows = nests.map(n => '<tr><td>' + esc(n.label) + '</td><td>' + n.pieces + '</td><td>' + (n.stickIn / 12) + '′</td><td class="big">' + n.sticks + '</td><td>' + Math.round(n.util * 100) + '%</td><td>' + this.fmtFtIn(n.drop) + (n.tooLong ? ' <span style="color:#D2402F;font-weight:700">⚠ PART LONGER THAN STICK</span>' : '') + '</td><td>' + n.wt.toFixed(0) + '</td></tr>').join('');
+    const nrows = nests.map(n => '<tr><td>' + esc(n.label) + '</td><td>' + n.pieces + '</td><td>' + (n.stickIn / 12) + '′</td><td class="big">' + n.sticks + '</td><td>' + Math.round(n.util * 100) + '%</td><td>' + this.fmtFtIn(n.drop) + (n.tooLong ? ' <span style="color:#D2402F;font-weight:700">⚠ ' + esc(this.unplacedText(n)) + '</span>' : '') + '</td><td>' + n.wt.toFixed(0) + '</td></tr>').join('');
     return '<!DOCTYPE html><html><head><meta charset="utf-8"><title>JOB TICKET ' + esc(st.job || '') + '</title><style>' + this._ticketCss() + '</style></head><body>' +
       this._ticketTop('Job Cut List', 'JOB <b>' + esc(st.job || '—') + '</b><br>' + new Date().toLocaleDateString() + '<br>TRUE SIZE — KERF STAYS IN CAM') +
       '<table><tr><th>Marks</th><th>Pieces</th><th>Total weight</th><th>Sticks to pull</th><th>Material ≈</th></tr>' +
@@ -3555,7 +3722,7 @@ class Component extends DCLogic {
       bandLegend: st.hovL ? st.hovL : (bandWide ? 'Grid lines every 12\u2033' : c.kind === 'round' ? 'Middle = top of the pipe \u00B7 top and bottom edge = the seam \u00B7 lines every 12\u2033' : c.kind === 'box' ? 'Middle = top face \u00B7 top and bottom edge = the seam \u00B7 lines every 12\u2033' : 'Lines every 12\u2033'),
       bandLegendS: Object.assign({ font: (st.hovL ? '700' : '500') + ' 12px/' + (bandWide ? '1.2' : '1.4') + ' JetBrains Mono, monospace', color: st.hovL ? '#1F3A5F' : '#6B7480' }, bandWide ? { whiteSpace: 'nowrap', textAlign: 'right' } : { whiteSpace: 'normal', minHeight: '34px', maxHeight: '34px' }),
       bhS: bandWide ? {} : { flexDirection: 'column', gap: '4px', alignItems: 'flex-start' },
-      vb: band.vb, gridP: p.gridP, refP: p.refP, wpP: p.wpP, outAP: p.outAP, outBP: p.outBP, outCP: p.outCP, holesP: p.holesP,
+      vb: band.vb, gridP: p.gridP, refP: p.refP, wpP: p.wpP, outAP: p.outAP, outBP: p.outBP, outCP: p.outCP, holesP: p.holesP, clashP: p.clashP || '',
       bandLbls: band.labels, sw: 1.4, swThin: .8, dash: '5 4',
       endASpec: c.invalid || !c.A ? '\u2014' : this.endSpecText(c.A, c.sec),
       endBSpec: c.invalid || !c.B ? '\u2014' : this.endSpecText(c.B, c.sec),
@@ -3567,12 +3734,13 @@ class Component extends DCLogic {
       stWt: c.invalid ? '' : Math.round(c.wt) + ' LB EA',
       jobOpen: st.jobOpen, jobEmpty: st.parts.length === 0, jobParts, nests: nests.map(n2 => ({
         key: n2.key, label: n2.label,
-        chip: n2.sticks + ' STICK' + (n2.sticks > 1 ? 'S' : '') + ' \u00B7 ' + Math.round(n2.util * 100) + '% \u00B7 DROP ' + this.fmtFtIn(n2.drop) + (n2.tooLong ? ' \u00B7 PART > STICK!' : ''),
+        chip: n2.sticks + ' STICK' + (n2.sticks === 1 ? '' : 'S') + (n2.sticks ? ' \u00B7 ' + Math.round(n2.util * 100) + '% \u00B7 DROP ' + this.fmtFtIn(n2.drop) : '') + (n2.tooLong ? ' \u00B7 ' + n2.unplaced.length + ' WILL NOT FIT' : ''),
+        unplacedTxt: this.unplacedText(n2), hasUnplaced: n2.tooLong,
         chipS: { font: '500 12px/1.4 JetBrains Mono, monospace', color: n2.tooLong ? '#B3261E' : '#47515C' },
-        stick: String(Math.min(parseFloat(st.stickSel[n2.key] || '288'), Component.LASER.maxLen)),
+        stick: String(n2.stickIn),
         sStick: (e) => this.setState(s => ({ stickSel: Object.assign({}, s.stickSel, { [n2.key]: e.target.value }) })),
         del: () => { if (!confirm('Erase all ' + n2.pieces + ' pc of ' + n2.label + ' from this job?')) return; this.setState(s => ({ parts: s.parts.filter(p => p.groupKey !== n2.key) })); },
-        barS: { height: 4, width: Math.round(n2.util * 100) + '%', background: n2.tooLong ? '#B3261E' : '#1F3A5F', borderRadius: 2 }
+        barS: { height: 4, width: Math.round(Math.min(1, n2.util) * 100) + '%', background: n2.tooLong ? '#B3261E' : '#1F3A5F', borderRadius: 2 }
       })),
       gripT: st.gripT, onGrip: setS('gripT'),
       rateCT: st.rateCT, rateST: st.rateST, rateAT: st.rateAT,
@@ -3753,7 +3921,9 @@ class Component extends DCLogic {
     if (old) { this.setState(s => ({ parts: s.parts.map(x => x.id === old.id ? part : x), jobOpen: true, editId: null, markStash: null, mark: s.markStash || s.mark })); return; }
     this.setState(s => ({ parts: s.parts.concat([part]), jobOpen: true, mark: nextMark, qty: 1, editId: null, markStash: null }));
   }
-  _jobCsv() {
+  /** fileOf (a Map: part -> laser file name, or "NOT SAVED - why") is given when the cut list goes out with a
+   *  job: the last column is then what was really written. Without it the names are the ones a save would use. */
+  _jobCsv(fileOf) {
     const st = this.state;
     if (!st.parts.length) return null;
     // ASCII only (same rule as DXF/CSV); inch marks inside quoted fields are doubled.
@@ -3771,6 +3941,7 @@ class Component extends DCLogic {
           return [this.endSpecText(c.A || {}, c.sec), this.endSpecText(c.B || {}, c.sec), String(c.holes.filter(h => h.ok).length), this.jobFileName(p, this.laserBase(), used)];
         });
       } catch (e) { x = ['', '', '', 'NOT SAVED - fix the part']; }
+      if (fileOf) x[3] = fileOf.has(p) ? fileOf.get(p) : 'NOT SAVED';
       s += [q(p.code), q(p.mark), p.qty, q(p.desc), q(p.lenT2), p.oal.toFixed(3), p.wt.toFixed(1), (p.wt * p.qty).toFixed(1), q(x[0]), q(x[1]), q(x[2]), q(x[3])].join(',') + '\n';
     }
     return s;

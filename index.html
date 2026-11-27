@@ -491,6 +491,7 @@
           <path d="{{ outBP }}" fill="#EEF1F4" stroke="#14181D" stroke-width="{{ sw }}" vector-effect="non-scaling-stroke"></path>
           <path d="{{ outCP }}" fill="#EEF1F4" stroke="#14181D" stroke-width="{{ sw }}" vector-effect="non-scaling-stroke"></path>
           <path d="{{ holesP }}" fill="#FFFFFF" stroke="#1D5FBF" stroke-width="{{ sw }}" vector-effect="non-scaling-stroke"></path>
+          <path d="{{ clashP }}" fill="rgba(210,64,47,.22)" stroke="#D2402F" stroke-width="{{ sw }}" vector-effect="non-scaling-stroke" pointer-events="none"></path>
           <sc-if value="{{ hovOn }}" hint-placeholder-val="{{ false }}"><path d="{{ hovP }}" fill="none" stroke="#C2410C" stroke-width="{{ swThin }}" stroke-dasharray="{{ dash }}" pointer-events="none" vector-effect="non-scaling-stroke"></path></sc-if>
           <sc-for list="{{ bandLbls }}" as="bl" hint-placeholder-count="2"><text transform="{{ bl.tf }}" style="{{ bl.s }}" text-anchor="end" dominant-baseline="central" pointer-events="none">{{ bl.t }}</text></sc-for>
         </svg>
@@ -602,6 +603,7 @@
               </div>
               <div class="bar"><div style="{{ ng.barS }}"></div></div>
               <div style="margin-top:4px"><span style="{{ ng.chipS }}">{{ ng.chip }}</span></div>
+              <sc-if value="{{ ng.hasUnplaced }}" hint-placeholder-val="{{ false }}"><div class="issues" style="margin-top:6px"><b>Not on any stick</b><div>{{ ng.unplacedTxt }}</div></div></sc-if>
             </div>
           </sc-for>
         </div>
